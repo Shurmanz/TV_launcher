@@ -49,6 +49,19 @@ public class HomeKeyService extends AccessibilityService {
         openHome(now);
     }
 
+    /**
+     * После перезагрузки штатный экран успевает открыться раньше, чем система подключит службу,
+     * и события «окно сменилось» уже не будет. Поэтому в первые минуты после загрузки сразу открываем «Дом».
+     */
+    @Override
+    protected void onServiceConnected() {
+        super.onServiceConnected();
+        if (SystemClock.elapsedRealtime() < 10 * 60_000L) {
+            new android.os.Handler(android.os.Looper.getMainLooper())
+                    .postDelayed(() -> openHome(SystemClock.elapsedRealtime()), 1500);
+        }
+    }
+
     private void openHome(long now) {
         if (now - lastLaunch < 600) return;
         lastLaunch = now;
