@@ -190,7 +190,7 @@ public class HomeActivity extends Activity {
         wall.addListener(clock);
         left.addView(clock, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         LinearLayout.LayoutParams wl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        wl.setMargins(-dp(14), dp(10), 0, 0);
+        wl.setMargins(-dp(14), -dp(8), 0, 0); // строка погоды ближе к часам
         left.addView(weatherBtn, wl);
         FrameLayout.LayoutParams ll = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP | Gravity.START);
