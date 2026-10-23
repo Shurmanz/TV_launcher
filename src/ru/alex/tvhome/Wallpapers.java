@@ -39,6 +39,11 @@ final class Wallpapers {
         dir = new File(ctx.getCacheDir(), "wall");
         dir.mkdirs();
         prefs = ctx.getSharedPreferences("walls", Context.MODE_PRIVATE);
+        if (prefs.getInt("cacheVer", 1) < 2) { // фото, подобранные по старым правилам (лето, люди), — убрать
+            File[] fs = dir.listFiles();
+            if (fs != null) for (File f : fs) f.delete();
+            prefs.edit().putInt("cacheVer", 2).apply();
+        }
     }
 
     /** Ключ сцены, например "day_cloudy_autumn". */
@@ -56,49 +61,42 @@ final class Wallpapers {
 
     static boolean summer() { return season().equals("summer"); }
 
-    /** Северные регионы — их подмешиваем к половине запросов (природа, похожая на Череповец). */
-    private static final String[] REGIONS = {"Russia", "Finland", "Karelia", "Norway", "Sweden", "Vologda"};
-
-    /** Основы запросов для неба и времени суток (без сезона). */
+    /** Основы запросов для неба и времени суток (короткие: длинные почти ничего не находят). */
     private static String[] bases(Weather.Phase p, Weather.Sky s) {
         switch (s) {
             case CLEAR:
                 switch (p) {
-                    case DAWN: return new String[]{"sunrise lake", "sunrise forest", "morning mist field"};
-                    case DAY: return new String[]{"forest", "lake", "river valley", "meadow"};
-                    case DUSK: return new String[]{"sunset lake", "sunset forest", "sunset field"};
-                    default: return new String[]{"night sky forest", "moon lake night", "starry sky landscape"};
+                    case DAWN: return new String[]{"sunrise", "morning mist", "sunrise lake"};
+                    case DAY: return new String[]{"forest", "lake", "river", "landscape"};
+                    case DUSK: return new String[]{"sunset", "sunset lake", "evening"};
+                    default: return new String[]{"night", "moon", "starry sky"};
                 }
             case CLOUDY:
                 switch (p) {
-                    case DAWN: return new String[]{"cloudy morning lake", "overcast morning forest"};
-                    case DAY: return new String[]{"overcast forest", "overcast lake", "cloudy field", "grey sky river"};
-                    case DUSK: return new String[]{"cloudy sunset", "evening clouds lake", "dusk forest"};
-                    default: return new String[]{"night clouds landscape", "night forest"};
+                    case DAWN: return new String[]{"morning clouds", "overcast", "morning mist"};
+                    case DAY: return new String[]{"overcast", "cloudy", "clouds", "grey sky", "mist"};
+                    case DUSK: return new String[]{"dusk", "evening clouds", "cloudy sunset", "sunset clouds", "evening"};
+                    default: return new String[]{"night clouds", "night"};
                 }
             case FOG:
-                return p == Weather.Phase.NIGHT ? new String[]{"fog night", "misty night forest"}
-                        : new String[]{"fog forest", "misty lake", "fog field"};
+                return p == Weather.Phase.NIGHT ? new String[]{"fog night", "mist night"} : new String[]{"fog", "mist", "foggy forest"};
             case RAIN:
-                return p == Weather.Phase.NIGHT ? new String[]{"rainy night", "rain night forest"}
-                        : new String[]{"rain forest", "rainy lake", "rain clouds field"};
+                return p == Weather.Phase.NIGHT ? new String[]{"rain night", "night"} : new String[]{"rain", "rainy", "rain clouds"};
             case SNOW:
-                return p == Weather.Phase.NIGHT ? new String[]{"snowy night forest", "winter night snow"}
-                        : new String[]{"snowfall forest", "snowy field", "snow covered trees"};
+                return p == Weather.Phase.NIGHT ? new String[]{"snow night", "winter night"} : new String[]{"snowfall", "snow forest", "snowy"};
             default:
-                return new String[]{"thunderstorm landscape", "storm clouds field"};
+                return new String[]{"thunderstorm", "storm clouds"};
         }
     }
 
-    /** Поисковые запросы для сцены: сезон обязателен, к половине — северный регион. */
+    /** Поисковые запросы для сцены: сезон в каждом + пара запросов «северная природа». */
     static List<String> queries(Weather.Phase p, Weather.Sky s) {
-        String season = season();
-        String se = s == Weather.Sky.SNOW ? "" : season + " ";
+        String season = s == Weather.Sky.SNOW ? "winter" : season();
         List<String> q = new ArrayList<>();
-        int r = new Random().nextInt(REGIONS.length);
-        for (String b : bases(p, s)) {
-            q.add(se + b);
-            q.add(se + b + " " + REGIONS[r++ % REGIONS.length]);
+        for (String b : bases(p, s)) q.add(season + " " + b);
+        if (p == Weather.Phase.DAY || p == Weather.Phase.DAWN) {
+            q.add(season + " Russia");
+            q.add(season + " Finland");
         }
         return q;
     }
@@ -158,19 +156,24 @@ final class Wallpapers {
             return visible(Arrays.asList(saved.split("\n")));
         }
         LinkedHashSet<String> set = new LinkedHashSet<>();
+        boolean limited = false;
         for (String query : queries(p, s)) {
-            try { set.addAll(searchCommons(query, 0)); } catch (Exception e) { Net.log("commons '" + query + "' t0", e); }
+            try { set.addAll(searchCommons(query, 0)); }
+            catch (Exception e) { Net.log("commons '" + query + "' t0", e); if (String.valueOf(e.getMessage()).contains("429")) { limited = true; break; } }
         }
-        if (set.size() < 15) { // мало «Quality images» — добираем из «Valued images» (тоже отобранные)
+        if (set.size() < 15 && !limited) { // мало «Quality images» — добираем из «Valued images» (тоже отобранные)
             for (String query : queries(p, s)) {
-                try { set.addAll(searchCommons(query, 1)); } catch (Exception e) { Net.log("commons '" + query + "' t1", e); }
+                try { set.addAll(searchCommons(query, 1)); }
+                catch (Exception e) { Net.log("commons '" + query + "' t1", e); if (String.valueOf(e.getMessage()).contains("429")) break; }
             }
         }
         List<String> out = new ArrayList<>(set);
         if (out.isEmpty() && saved != null) return visible(Arrays.asList(saved.split("\n")));
         Collections.shuffle(out, rnd);
         if (!out.isEmpty()) {
-            prefs.edit().putString(key, join(out)).putLong(key + ".ts", System.currentTimeMillis()).apply();
+            // маленький список (например, после отказа 429) — повторить через 30 мин, а не через 6 ч
+            long ts2 = out.size() >= 15 ? System.currentTimeMillis() : System.currentTimeMillis() - LIST_TTL + 30 * 60_000L;
+            prefs.edit().putString(key, join(out)).putLong(key + ".ts", ts2).apply();
         }
         return visible(out);
     }
@@ -190,10 +193,18 @@ final class Wallpapers {
         // шаблоны можно переопределить через DebugReceiver (--es tpl0 "... %s ...") без пересборки
         String tpl = prefs.getString("tpl" + tier, tier == 0 ? "%s incategory:\"Quality images\"" : "%s incategory:\"Valued images\"");
         String search = tpl.replace("%s", query + " " + PEOPLE + " " + offSeason());
-        int offset = rnd.nextInt(3) * 50;
-        JSONObject o = commonsQuery(search, offset);
-        if (offset > 0 && o.optJSONObject("query") == null) o = commonsQuery(search, 0); // выдача короче сдвига
+        throttle();
+        JSONObject o = commonsQuery(search, 0);
         return parseCommons(o, query, search, tier);
+    }
+
+    private static long lastQuery;
+
+    /** Не чаще одного запроса в 1,5 с — иначе Wikimedia отвечает 429 «слишком много запросов». */
+    private static synchronized void throttle() {
+        long wait = lastQuery + 1500 - System.currentTimeMillis();
+        if (wait > 0) try { Thread.sleep(wait); } catch (InterruptedException ignored) { }
+        lastQuery = System.currentTimeMillis();
     }
 
     private static JSONObject commonsQuery(String search, int offset) throws Exception {

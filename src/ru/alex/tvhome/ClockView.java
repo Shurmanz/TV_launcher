@@ -34,6 +34,7 @@ final class ClockView extends LinearLayout implements WallpaperView.Listener {
         weather = weatherView;
         greeting = Ui.text(ctx, timeSp * 0.2f, 400, 0x99FFFFFF);
         greeting.setLetterSpacing(0.28f);
+        greeting.setSingleLine(true);
         addView(greeting);
 
         LinearLayout row = new LinearLayout(ctx);
@@ -49,6 +50,7 @@ final class ClockView extends LinearLayout implements WallpaperView.Listener {
         row.addView(bar, bl);
         date = Ui.text(ctx, timeSp * 0.24f, 400, 0x99FFFFFF);
         date.setLetterSpacing(0.18f);
+        date.setSingleLine(true);
         LayoutParams dl = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
         dl.topMargin = Ui.dp(ctx, 6);
         row.addView(date, dl);

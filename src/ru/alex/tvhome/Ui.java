@@ -57,8 +57,10 @@ final class Ui {
         try {
             Bitmap b = Bitmap.createBitmap(24, 24, Bitmap.Config.ARGB_8888);
             Canvas cv = new Canvas(b);
+            android.graphics.Rect old = new android.graphics.Rect(d.getBounds()); // тот же Drawable рисует плитка
             d.setBounds(0, 0, 24, 24);
             d.draw(cv);
+            d.setBounds(old);
             double r = 0, g = 0, bl = 0, wsum = 0;
             float[] hsv = new float[3];
             for (int y = 0; y < 24; y++) for (int x = 0; x < 24; x++) {
