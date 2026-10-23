@@ -57,6 +57,10 @@ final class ClockView extends LinearLayout implements WallpaperView.Listener {
         LayoutParams rl = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
         rl.topMargin = Ui.dp(ctx, 4);
         addView(row, rl);
+        Ui.strongShadow(greeting);
+        Ui.strongShadow(time);
+        Ui.strongShadow(date);
+        if (weather != null) Ui.strongShadow(weather);
     }
 
     void setNightListener(NightListener l) { nightListener = l; }

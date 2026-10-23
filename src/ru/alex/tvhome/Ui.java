@@ -29,6 +29,12 @@ final class Ui {
         return t;
     }
 
+    /** Плотная мягкая тень: белый текст читается и на светлом фото. */
+    static void strongShadow(TextView t) {
+        Context c = t.getContext();
+        t.setShadowLayer(dp(c, 10), 0, dp(c, 1), 0xE6000000);
+    }
+
     static GradientDrawable round(int color, float radius, int strokeW, int strokeColor) {
         GradientDrawable g = new GradientDrawable();
         g.setColor(color);

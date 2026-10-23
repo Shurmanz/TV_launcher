@@ -177,7 +177,7 @@ public class HomeActivity extends Activity {
         weatherBtn.setOnFocusChangeListener((v, has) -> {
             v.setBackground(has ? Ui.round(0xF2FFFFFF, dp(100), 0, 0) : null);
             weatherBtn.setTextColor(has ? 0xFF111111 : 0xE6FFFFFF);
-            weatherBtn.setShadowLayer(has ? 0 : dp(6), 0, has ? 0 : dp(1), 0x80000000);
+            if (has) weatherBtn.setShadowLayer(0, 0, 0, 0); else Ui.strongShadow(weatherBtn);
             if (has) glow.hide();
         });
         weatherBtn.setOnClickListener(v -> openWeather());
@@ -215,7 +215,7 @@ public class HomeActivity extends Activity {
         int side = dp(64), gap = dp(24);
         tileW = (sw - 2 * side - (COLS - 1) * gap) / COLS;
         tileH = Math.round(tileW * 9f / 16f);
-        glow.setTile(tileW, tileH);
+        glow.setTile(tileW, tileH, dp(14), 1.1f);
 
         scroll = new ScrollView(this);
         scroll.setVerticalScrollBarEnabled(false);
@@ -904,7 +904,9 @@ public class HomeActivity extends Activity {
         try {
             ConnectivityManager cm = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
             netCb = new ConnectivityManager.NetworkCallback() {
-                @Override public void onAvailable(Network n) { runOnUiThread(HomeActivity.this::updateNet); }
+                @Override public void onAvailable(Network n) {
+                    runOnUiThread(() -> { updateNet(); if (wall != null) wall.refreshWeather(); });
+                }
                 @Override public void onLost(Network n) { runOnUiThread(HomeActivity.this::updateNet); }
                 @Override public void onCapabilitiesChanged(Network n, NetworkCapabilities c) { runOnUiThread(HomeActivity.this::updateNet); }
             };

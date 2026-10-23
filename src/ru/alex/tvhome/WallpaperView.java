@@ -113,6 +113,30 @@ final class WallpaperView extends FrameLayout {
 
     boolean hasPhoto() { return current != null; }
 
+    /** Только погода, без смены фото: повтор после ошибки и при появлении сети. */
+    private final Runnable weatherRetry = this::refreshWeather;
+    private volatile boolean weatherBusy;
+
+    void refreshWeather() {
+        ui.removeCallbacks(weatherRetry);
+        Weather w = lastWeather;
+        if (weatherBusy || (w != null && System.currentTimeMillis() - w.fetchedAt < WEATHER_TTL)) return;
+        weatherBusy = true;
+        bg.execute(() -> {
+            try {
+                Weather fw = Weather.fetch();
+                lastWeather = fw;
+                ui.post(() -> { for (Listener l : listeners) l.onWeather(fw); });
+                android.util.Log.i(Net.TAG, "weather retry ok: " + fw.describe());
+            } catch (Exception e) {
+                Net.log("weather retry", e);
+                ui.postDelayed(weatherRetry, 30_000);
+            } finally {
+                weatherBusy = false;
+            }
+        });
+    }
+
     private void schedule() {
         ui.removeCallbacks(tick);
         long left = interval - (SystemClock.elapsedRealtime() - lastChange);
@@ -154,6 +178,7 @@ final class WallpaperView extends FrameLayout {
                                 + " | hours " + fw.hours.size() + ", days " + fw.days.size());
                     } catch (Exception e) {
                         Net.log("weather", e);
+                        ui.postDelayed(weatherRetry, 30_000); // сеть после загрузки ТВ ещё не готова — повторим скоро
                     }
                 }
                 Weather.Phase p = Weather.phase(lastWeather, System.currentTimeMillis());

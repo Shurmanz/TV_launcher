@@ -3,40 +3,48 @@ package ru.alex.tvhome;
 import android.animation.ArgbEvaluator;
 import android.animation.ValueAnimator;
 import android.content.Context;
+import android.graphics.BlurMaskFilter;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
-import android.graphics.RadialGradient;
-import android.graphics.Shader;
+import android.graphics.RectF;
 import android.view.View;
 import android.view.animation.DecelerateInterpolator;
 
 /**
- * Свечение под выбранной плиткой — компактное и насыщенное, как разноцветный ореол на загрузке Google TV:
- * овал по форме плитки в цвете приложения плюс второй, сдвинутый по оттенку, — получается живой градиент.
- * Плавно «перетекает» за фокусом и вспыхивает при нажатии.
+ * Свечение по контуру выбранной плитки — один цвет из иконки приложения.
+ * Рисуется размытый скруглённый прямоугольник под плиткой: сама плитка закрывает середину,
+ * видно только ровное сияние вокруг краёв. Плавно переезжает за фокусом, вспыхивает при нажатии.
  */
 final class GlowView extends View {
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final ArgbEvaluator argb = new ArgbEvaluator();
+    private final RectF rect = new RectF();
     private float x, y, alpha = 0f;
-    private float rx, ry;          // полуоси овала (по размеру плитки)
-    private float grow = 1f;       // волна при нажатии
-    private float boost = 1f;
+    private float halfW, halfH, corner;
+    private float spread;          // насколько сияние выходит за край
+    private float grow = 1f, boost = 1f;
     private int color = 0xFF5A8CFF;
     private ValueAnimator move, pulse;
     private float level = 0.9f;
+    private BlurMaskFilter blur;
+    private float blurFor = -1;
 
     GlowView(Context c) {
         super(c);
-        rx = Ui.dp(c, 120);
-        ry = Ui.dp(c, 72);
+        spread = Ui.dp(c, 18);
+        halfW = Ui.dp(c, 74);
+        halfH = Ui.dp(c, 42);
+        corner = Ui.dp(c, 14);
+        paint.setStyle(Paint.Style.FILL);
+        setLayerType(LAYER_TYPE_HARDWARE, null);
     }
 
-    /** Размер ореола: чуть больше плитки. */
-    void setTile(int w, int h) {
-        rx = w * 0.5f + Ui.dp(getContext(), 46);
-        ry = h * 0.5f + Ui.dp(getContext(), 34);
+    /** Размер плитки в фокусе (с учётом увеличения) и радиус её углов. */
+    void setTile(int w, int h, float radius, float focusScale) {
+        halfW = w * focusScale / 2f;
+        halfH = h * focusScale / 2f;
+        corner = radius * focusScale;
         invalidate();
     }
 
@@ -50,7 +58,7 @@ final class GlowView extends View {
         final int target = vivid(tc);
         final boolean first = alpha == 0f;
         move = ValueAnimator.ofFloat(0f, 1f);
-        move.setDuration(first ? 1 : 360);
+        move.setDuration(first ? 1 : 300);
         move.setInterpolator(new DecelerateInterpolator(1.6f));
         move.addUpdateListener(a -> {
             float f = (float) a.getAnimatedValue();
@@ -66,22 +74,21 @@ final class GlowView extends View {
     void hide() {
         if (move != null) move.cancel();
         ValueAnimator a = ValueAnimator.ofFloat(alpha, 0f);
-        a.setDuration(220);
+        a.setDuration(200);
         a.addUpdateListener(v -> { alpha = (float) v.getAnimatedValue(); invalidate(); });
         a.start();
         move = a;
     }
 
-    /** Вспышка при нажатии. */
+    /** Вспышка при нажатии: сияние ярче и шире. */
     void pulse() {
         if (pulse != null) pulse.cancel();
         pulse = ValueAnimator.ofFloat(0f, 1f);
-        pulse.setDuration(380);
+        pulse.setDuration(360);
         pulse.addUpdateListener(a -> {
-            float f = (float) a.getAnimatedValue();
-            float k = (float) Math.sin(Math.PI * f);
-            grow = 1f + 0.35f * k;
-            boost = 1f + 0.5f * k;
+            float k = (float) Math.sin(Math.PI * (float) a.getAnimatedValue());
+            grow = 1f + 0.8f * k;
+            boost = 1f + 0.4f * k;
             invalidate();
         });
         pulse.addListener(new android.animation.AnimatorListenerAdapter() {
@@ -90,44 +97,29 @@ final class GlowView extends View {
         pulse.start();
     }
 
-    /** Насыщенный и яркий вариант цвета: блеклые иконки тоже дают сочное свечение. */
+    /** Насыщенный яркий вариант цвета иконки (тот же оттенок). */
     private static int vivid(int c) {
         float[] h = new float[3];
         Color.colorToHSV(c, h);
-        if (h[1] < 0.15f) return 0xFF8FA8FF; // серые/белые — холодный синий
-        h[1] = Math.min(1f, h[1] * 1.3f + 0.2f);
+        if (h[1] < 0.15f) return 0xFFB8C6FF; // серые/белые иконки — светлый холодный
+        h[1] = Math.min(1f, h[1] * 1.25f + 0.15f);
         h[2] = 1f;
         return Color.HSVToColor(h);
-    }
-
-    private static int shift(int c, float deg) {
-        float[] h = new float[3];
-        Color.colorToHSV(c, h);
-        h[0] = (h[0] + deg + 360f) % 360f;
-        return Color.HSVToColor(h);
-    }
-
-    private void blob(Canvas c, float cx, float cy, float a, int col, float sx, float sy) {
-        int r = Color.red(col), g = Color.green(col), b = Color.blue(col);
-        int core = Color.argb(Math.round(255 * a), r, g, b);
-        int mid = Color.argb(Math.round(150 * a), r, g, b);
-        int edge = Color.argb(Math.round(40 * a), r, g, b);
-        float rad = rx * grow * sx;
-        c.save();
-        c.scale(1f, ry * sy / (rx * sx), cx, cy); // круг → овал по форме плитки
-        paint.setShader(new RadialGradient(cx, cy, rad, new int[]{core, core, mid, edge, 0},
-                new float[]{0f, 0.42f, 0.62f, 0.82f, 1f}, Shader.TileMode.CLAMP));
-        c.drawCircle(cx, cy, rad, paint);
-        c.restore();
     }
 
     @Override
     protected void onDraw(Canvas c) {
         float a = Math.min(1f, alpha * level * boost);
         if (a <= 0.01f) return;
-        // второй оттенок слева сверху, основной цвет по центру — как переливающийся ореол
-        blob(c, x - rx * 0.28f, y - ry * 0.18f, a * 0.75f, shift(color, -38f), 0.9f, 0.95f);
-        blob(c, x + rx * 0.22f, y + ry * 0.14f, a * 0.65f, shift(color, 32f), 0.85f, 0.9f);
-        blob(c, x, y, a, color, 1f, 1f);
+        float s = spread * grow;
+        if (blur == null || Math.abs(blurFor - s) > 0.5f) {
+            blur = new BlurMaskFilter(s, BlurMaskFilter.Blur.NORMAL);
+            blurFor = s;
+        }
+        paint.setMaskFilter(blur);
+        paint.setColor(Color.argb(Math.round(255 * a), Color.red(color), Color.green(color), Color.blue(color)));
+        float e = s * 0.35f; // чуть шире плитки, чтобы сияние начиналось прямо от края
+        rect.set(x - halfW - e, y - halfH - e, x + halfW + e, y + halfH + e);
+        c.drawRoundRect(rect, corner + e, corner + e, paint);
     }
 }
