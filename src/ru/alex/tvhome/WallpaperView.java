@@ -206,6 +206,7 @@ final class WallpaperView extends FrameLayout {
     }
 
     private void crossfade(Bitmap bm, String entry) {
+        android.util.Log.i(Net.TAG, "show " + bm.getWidth() + "x" + bm.getHeight() + " " + (entry == null ? "(cache)" : entry.split("\t")[0]));
         current = entry;
         lastChange = SystemClock.elapsedRealtime();
         final ImageView in = back, out = front;

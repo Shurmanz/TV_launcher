@@ -21,7 +21,7 @@ final class Panel extends FrameLayout {
 
         LinearLayout card = new LinearLayout(c);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackground(Ui.round(0xD9232326, Ui.dp(c, 28), Ui.dp(c, 1), 0x33FFFFFF));
+        card.setBackground(Ui.round(0xF21E1E21, Ui.dp(c, 28), Ui.dp(c, 1), 0x33FFFFFF));
         card.setPadding(Ui.dp(c, 32), Ui.dp(c, 26), Ui.dp(c, 32), Ui.dp(c, 28));
         card.setClipChildren(false);
         card.setClipToPadding(false);

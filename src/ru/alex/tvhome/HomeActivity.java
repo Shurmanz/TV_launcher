@@ -718,11 +718,13 @@ public class HomeActivity extends Activity {
                 ic.setImageDrawable(new Icon(in.type == android.media.tv.TvInputInfo.TYPE_TUNER ? Icon.ETHERNET : Icon.INPUT,
                         on ? 0xFFFFFFFF : 0x80FFFFFF));
                 card.addView(ic, new LinearLayout.LayoutParams(dp(34), dp(34)));
-                TextView name = Ui.text(this, 17, 500, on ? 0xFFFFFFFF : 0x99FFFFFF);
+                TextView name = Ui.text(this, in.label.length() > 9 ? 14 : 17, 500, on ? 0xFFFFFFFF : 0x99FFFFFF);
                 name.setShadowLayer(0, 0, 0, 0);
                 name.setText(in.label);
                 name.setGravity(Gravity.CENTER);
-                LinearLayout.LayoutParams nl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                name.setMaxLines(2);
+                name.setEllipsize(TextUtils.TruncateAt.END);
+                LinearLayout.LayoutParams nl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
                 nl.topMargin = dp(10);
                 card.addView(name, nl);
                 TextView sub = Ui.text(this, 12, 400, reliable && in.connected ? 0xFF7CE38B : 0x99FFFFFF);
@@ -740,8 +742,8 @@ public class HomeActivity extends Activity {
                     closePanel();
                     if (!TvInputs.open(this, in)) Toast.makeText(this, "Не удалось переключить вход", Toast.LENGTH_SHORT).show();
                 });
-                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(140), dp(132));
-                if (strip.getChildCount() > 0) lp.leftMargin = dp(14);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(118), dp(132)); // 6 входов влезают целиком
+                if (strip.getChildCount() > 0) lp.leftMargin = dp(12);
                 strip.addView(card, lp);
                 if (first == null) first = card;
                 if (reliable && in.connected && firstConnected == null) firstConnected = card;
