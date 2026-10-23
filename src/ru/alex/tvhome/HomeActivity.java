@@ -49,10 +49,11 @@ public class HomeActivity extends Activity {
     private GlowView glow;
     private ClockView clock;
     private TextView weatherBtn, netLabel, moveHint;
-    private Icon netIcon, settingsIcon;
+    private Icon settingsIcon;
+    private View inputsChip;
     private ScrollView scroll;
     private LinearLayout grid;
-    private Panel panel;
+    private FrameLayout panel;
     private View beforePanel;
     private boolean resumed;
     private String moving; // пакет, который сейчас перемещаем
@@ -192,27 +193,29 @@ public class HomeActivity extends Activity {
         ll.setMargins(dp(64), dp(38), 0, 0);
         content.addView(left, ll);
 
-        // --- справа: Входы, сеть, Настройки
+        // --- под погодой, сразу над плитками: Входы, сеть, Настройки — круглые значки
         LinearLayout chips = new LinearLayout(this);
         chips.setOrientation(LinearLayout.HORIZONTAL);
-        chips.addView(chip(new Icon(Icon.INPUT, 0xFFFFFFFF), "Входы", v -> openInputs(), null));
-        netIcon = new Icon(Icon.WIFI, 0xFFFFFFFF);
-        View net = chip(netIcon, "Wi‑Fi", v -> openSettings(Settings.ACTION_WIFI_SETTINGS), null);
+        chips.setClipChildren(false);
+        inputsChip = chip(new Icon(Icon.INPUT, 0xFFFFFFFF), "Входы", v -> openInputs(), null);
+        chips.addView(inputsChip);
+        View net = chip(new Icon(Icon.WIFI, 0xFFFFFFFF), "Wi‑Fi", v -> openSettings(Settings.ACTION_WIFI_SETTINGS), null);
         netLabel = (TextView) ((ViewGroup) net).getChildAt(1);
         chips.addView(net);
         settingsIcon = new Icon(Icon.GEAR, 0xFFFFFFFF);
         chips.addView(chip(settingsIcon, "Настройки", v -> openSettings(Settings.ACTION_SETTINGS),
                 v -> { openLibrary(null); return true; }));
-        FrameLayout.LayoutParams cl = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP | Gravity.END);
-        cl.setMargins(0, dp(48), dp(52), 0);
-        content.addView(chips, cl);
+        LinearLayout.LayoutParams chl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        chl.topMargin = dp(12);
+        left.addView(chips, chl);
+        left.setClipChildren(false);
 
         // --- плитки: по 5 в строке, лишние — ниже, с прокруткой
         int sw = getResources().getDisplayMetrics().widthPixels;
         int side = dp(64), gap = dp(24);
         tileW = (sw - 2 * side - (COLS - 1) * gap) / COLS;
         tileH = Math.round(tileW * 9f / 16f);
+        glow.setTile(tileW, tileH);
 
         scroll = new ScrollView(this);
         scroll.setVerticalScrollBarEnabled(false);
@@ -253,29 +256,32 @@ public class HomeActivity extends Activity {
         LinearLayout c = new LinearLayout(this);
         c.setOrientation(LinearLayout.HORIZONTAL);
         c.setGravity(Gravity.CENTER_VERTICAL);
-        c.setPadding(dp(16), dp(10), dp(20), dp(10));
+        c.setPadding(dp(10), dp(10), dp(10), dp(10));
         c.setFocusable(true);
         Ui.pill(c, false);
         ImageView iv = new ImageView(this);
         iv.setImageDrawable(icon);
         c.addView(iv, new LinearLayout.LayoutParams(dp(20), dp(20)));
-        TextView t = Ui.text(this, 16, 500, 0xFFFFFFFF);
+        TextView t = Ui.text(this, 15, 500, 0xFF111111);
         t.setShadowLayer(0, 0, 0, 0);
+        t.setSingleLine(true);
         t.setText(label);
+        t.setVisibility(View.GONE); // подпись — только у выбранного значка
         LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        tl.leftMargin = dp(10);
+        tl.leftMargin = dp(8);
         c.addView(t, tl);
         c.setOnFocusChangeListener((v, has) -> {
             Ui.pill(v, has);
-            icon.setColor(has ? 0xFF111111 : 0xFFFFFFFF);
-            t.setTextColor(has ? 0xFF111111 : 0xFFFFFFFF);
+            ((Icon) iv.getDrawable()).setColor(has ? 0xFF111111 : 0xFFFFFFFF);
+            t.setVisibility(has ? View.VISIBLE : View.GONE);
+            v.setPadding(dp(10), dp(10), has ? dp(16) : dp(10), dp(10));
             Ui.focusScale(v, has, 1.06f);
             if (has) glow.hide();
         });
         c.setOnClickListener(click);
         if (longClick != null) c.setOnLongClickListener(longClick);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.leftMargin = dp(12);
+        lp.rightMargin = dp(12);
         c.setLayoutParams(lp);
         return c;
     }
@@ -284,7 +290,7 @@ public class HomeActivity extends Activity {
 
     private void applyNight(boolean night) {
         nightDim.animate().alpha(night ? 0.45f : 0f).setDuration(1500).start();
-        glow.setLevel(night ? 0.3f : 0.55f);
+        glow.setLevel(night ? 0.45f : 0.9f);
         wall.setInterval(night ? WALL_NIGHT : WALL_DAY);
     }
 
@@ -540,7 +546,7 @@ public class HomeActivity extends Activity {
 
     // ---------- панели ----------
 
-    private void showPanel(Panel p, View first) {
+    private void showPanel(FrameLayout p, View first) {
         closePanel();
         beforePanel = getCurrentFocus();
         panel = p;
@@ -685,71 +691,111 @@ public class HomeActivity extends Activity {
 
     // --- входы
 
+    /** Выпадающий список входов под значком «Входы»: HDMI · AV · ТВ, разделённые тонкими линиями. */
     private void openInputs() {
-        Panel p = new Panel(this, "Входы", "ОК — переключить");
         List<TvInputs.In> list = TvInputs.list(this);
         boolean reliable = TvInputs.stateReliable(list);
-        int conn = 0;
-        for (TvInputs.In i : list) if (i.connected && i.type != android.media.tv.TvInputInfo.TYPE_TUNER) conn++;
-        p.count.setText(reliable ? plural(conn, "подключён", "подключено", "подключено")
-                : plural(list.size(), "вход", "входа", "входов"));
-        View first = null, firstConnected = null;
+
+        FrameLayout overlay = new FrameLayout(this);
+        overlay.setBackgroundColor(0x33000000);
+        overlay.setClickable(true);
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(6), dp(6), dp(6), dp(6));
+        card.setBackground(Ui.round(0xF21C1C1F, dp(20), dp(1), 0x26FFFFFF));
+        card.setElevation(dp(20));
+
+        View first = null;
+        int lastGroup = -1;
         if (list.isEmpty()) {
-            TextView t = Ui.text(this, 16, 400, 0xB3FFFFFF);
-            t.setText("Список входов недоступен");
-            p.body.addView(t);
-            LinearLayout row = new LinearLayout(this);
-            first = addAction(row, "Открыть ТВ", () -> {
+            first = menuRow(card, Icon.TV, "Открыть ТВ", null, () -> {
                 closePanel();
                 try { startActivity(new Intent(Intent.ACTION_MAIN).setComponent(TvInputs.TCL_TV).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); }
                 catch (Exception ignored) { }
             });
-            p.body.addView(row);
-        } else {
-            LinearLayout strip = p.strip();
-            for (TvInputs.In in : list) {
-                LinearLayout card = new LinearLayout(this);
-                card.setOrientation(LinearLayout.VERTICAL);
-                card.setGravity(Gravity.CENTER);
-                card.setPadding(dp(12), dp(14), dp(12), dp(14));
-                Panel.cardStyle(card, 22);
-                ImageView ic = new ImageView(this);
-                boolean on = in.connected || !reliable;
-                ic.setImageDrawable(new Icon(in.type == android.media.tv.TvInputInfo.TYPE_TUNER ? Icon.ETHERNET : Icon.INPUT,
-                        on ? 0xFFFFFFFF : 0x80FFFFFF));
-                card.addView(ic, new LinearLayout.LayoutParams(dp(34), dp(34)));
-                TextView name = Ui.text(this, in.label.length() > 9 ? 14 : 17, 500, on ? 0xFFFFFFFF : 0x99FFFFFF);
-                name.setShadowLayer(0, 0, 0, 0);
-                name.setText(in.label);
-                name.setGravity(Gravity.CENTER);
-                name.setMaxLines(2);
-                name.setEllipsize(TextUtils.TruncateAt.END);
-                LinearLayout.LayoutParams nl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-                nl.topMargin = dp(10);
-                card.addView(name, nl);
-                TextView sub = Ui.text(this, 12, 400, reliable && in.connected ? 0xFF7CE38B : 0x99FFFFFF);
-                sub.setShadowLayer(0, 0, 0, 0);
-                sub.setSingleLine(true);
-                sub.setEllipsize(TextUtils.TruncateAt.END);
-                sub.setText(in.type == android.media.tv.TvInputInfo.TYPE_TUNER ? "Эфир и кабель"
-                        : in.device != null ? in.device
-                        : reliable ? (in.connected ? "Подключено" : "Не подключено")
-                        : in.port != null ? in.port : in.type == android.media.tv.TvInputInfo.TYPE_HDMI ? "HDMI" : "Аналоговый");
-                LinearLayout.LayoutParams sl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-                sl.topMargin = dp(4);
-                card.addView(sub, sl);
-                card.setOnClickListener(v -> {
-                    closePanel();
-                    if (!TvInputs.open(this, in)) Toast.makeText(this, "Не удалось переключить вход", Toast.LENGTH_SHORT).show();
-                });
-                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(118), dp(132)); // 6 входов влезают целиком
-                if (strip.getChildCount() > 0) lp.leftMargin = dp(12);
-                strip.addView(card, lp);
-                if (first == null) first = card;
-                if (reliable && in.connected && firstConnected == null) firstConnected = card;
-            }
         }
-        showPanel(p, firstConnected != null ? firstConnected : first);
+        for (TvInputs.In in : list) {
+            int group = in.type == android.media.tv.TvInputInfo.TYPE_HDMI ? 0
+                    : in.type == android.media.tv.TvInputInfo.TYPE_TUNER ? 2 : 1;
+            if (lastGroup >= 0 && group != lastGroup) {
+                View sep = new View(this);
+                sep.setBackgroundColor(0x26FFFFFF);
+                LinearLayout.LayoutParams sl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, dp(1) / 2));
+                sl.setMargins(dp(14), dp(6), dp(14), dp(6));
+                card.addView(sep, sl);
+            }
+            lastGroup = group;
+            String sub = in.device != null ? in.device
+                    : in.port != null ? in.port
+                    : reliable && in.connected && group == 0 ? "Подключено" : null;
+            View row = menuRow(card, group == 0 ? Icon.INPUT : group == 1 ? Icon.AV : Icon.TV,
+                    group == 2 ? "Телевидение" : in.label, sub, () -> {
+                        closePanel();
+                        if (!TvInputs.open(this, in)) Toast.makeText(this, "Не удалось переключить вход", Toast.LENGTH_SHORT).show();
+                    });
+            if (first == null) first = row;
+        }
+
+        // позиция: под значком «Входы», но не ниже края экрана
+        int[] a = new int[2], r = new int[2];
+        inputsChip.getLocationInWindow(a);
+        root.getLocationInWindow(r);
+        int w = dp(320);
+        card.measure(View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY), View.MeasureSpec.UNSPECIFIED);
+        int h = card.getMeasuredHeight();
+        int top = a[1] - r[1] + inputsChip.getHeight() + dp(8);
+        top = Math.max(dp(16), Math.min(top, root.getHeight() - h - dp(16)));
+        FrameLayout.LayoutParams cl = new FrameLayout.LayoutParams(w, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP | Gravity.START);
+        cl.leftMargin = a[0] - r[0];
+        cl.topMargin = top;
+        overlay.addView(card, cl);
+        card.setPivotX(0);
+        card.setPivotY(0);
+        card.setScaleX(0.96f);
+        card.setScaleY(0.96f);
+        card.animate().scaleX(1f).scaleY(1f).setDuration(160).setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
+        showPanel(overlay, first);
+    }
+
+    /** Строка меню: значок, название, серая подпись справа; в фокусе — белая плашка. */
+    private View menuRow(LinearLayout parent, int iconKind, String title, String sub, Runnable action) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(14), 0, dp(14), 0);
+        row.setFocusable(true);
+        Icon ic = new Icon(iconKind, 0xFFFFFFFF);
+        ImageView iv = new ImageView(this);
+        iv.setImageDrawable(ic);
+        row.addView(iv, new LinearLayout.LayoutParams(dp(18), dp(18)));
+        TextView t = Ui.text(this, 15, 500, 0xFFFFFFFF);
+        t.setShadowLayer(0, 0, 0, 0);
+        t.setSingleLine(true);
+        t.setEllipsize(TextUtils.TruncateAt.END);
+        t.setText(title);
+        LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        tl.leftMargin = dp(14);
+        row.addView(t, tl);
+        TextView st = null;
+        if (sub != null) {
+            st = Ui.text(this, 11, 400, 0x80FFFFFF);
+            st.setShadowLayer(0, 0, 0, 0);
+            st.setSingleLine(true);
+            st.setText(sub);
+            LinearLayout.LayoutParams sl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            sl.leftMargin = dp(10);
+            row.addView(st, sl);
+        }
+        final TextView subView = st;
+        row.setOnFocusChangeListener((v, has) -> {
+            v.setBackground(has ? Ui.round(0xFFF5F5F7, dp(14), 0, 0) : null);
+            ic.setColor(has ? 0xFF111111 : 0xFFFFFFFF);
+            t.setTextColor(has ? 0xFF111111 : 0xFFFFFFFF);
+            if (subView != null) subView.setTextColor(has ? 0x99111111 : 0x80FFFFFF);
+        });
+        row.setOnClickListener(v -> action.run());
+        parent.addView(row, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40)));
+        return row;
     }
 
     // --- погода
@@ -893,18 +939,9 @@ public class HomeActivity extends Activity {
         }
         if (netLabel != null) {
             netLabel.setText(label.length() > 18 ? label.substring(0, 17) + "…" : label);
-            Icon fresh = new Icon(kind, netLabel.getCurrentTextColor());
-            ImageView iv = (ImageView) ((ViewGroup) netLabel.getParent()).getChildAt(0);
-            netIcon = fresh;
-            iv.setImageDrawable(fresh);
             View chip = (View) netLabel.getParent();
-            chip.setOnFocusChangeListener((v, has) -> {
-                Ui.pill(v, has);
-                netIcon.setColor(has ? 0xFF111111 : 0xFFFFFFFF);
-                netLabel.setTextColor(has ? 0xFF111111 : 0xFFFFFFFF);
-                Ui.focusScale(v, has, 1.06f);
-                if (has) glow.hide();
-            });
+            ImageView iv = (ImageView) ((ViewGroup) chip).getChildAt(0);
+            iv.setImageDrawable(new Icon(kind, chip.hasFocus() ? 0xFF111111 : 0xFFFFFFFF));
         }
     }
 }

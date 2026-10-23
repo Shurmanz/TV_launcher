@@ -46,7 +46,8 @@ public class NatureDream extends DreamService {
             dim.animate().alpha(n ? 0.5f : 0f).setDuration(1500).start();
             wall.setInterval(n ? 5 * 60_000L : 60_000L);
         });
-        box.addView(clock);
+        box.addView(clock, new android.widget.LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)); // иначе дата сжимается по строке погоды
         android.widget.LinearLayout.LayoutParams wl = new android.widget.LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         wl.topMargin = Math.round(12 * d);

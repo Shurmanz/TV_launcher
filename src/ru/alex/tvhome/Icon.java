@@ -11,7 +11,7 @@ import android.graphics.drawable.Drawable;
 
 /** Простые значки, нарисованные кодом (без ресурсов): вход, Wi‑Fi, Ethernet, шестерёнка, плюс. */
 final class Icon extends Drawable {
-    static final int INPUT = 0, WIFI = 1, ETHERNET = 2, GEAR = 3, PLUS = 4, NO_NET = 5;
+    static final int INPUT = 0, WIFI = 1, ETHERNET = 2, GEAR = 3, PLUS = 4, NO_NET = 5, AV = 6, TV = 7;
 
     private final int kind;
     private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -93,6 +93,37 @@ final class Icon extends Drawable {
                 p.setStyle(Paint.Style.STROKE);
                 p.setStrokeWidth(s * 0.14f);
                 c.drawCircle(cx, cy, s * 0.21f, p);
+                break;
+            }
+            case AV: { // три «тюльпана»: стойки с колпачками
+                p.setStyle(Paint.Style.STROKE);
+                p.setStrokeWidth(sw * 0.9f);
+                for (int i = -1; i <= 1; i++) {
+                    float lx = cx + i * s * 0.28f;
+                    c.drawLine(lx, cy - s * 0.38f, lx, cy + s * 0.38f, p);
+                }
+                p.setStyle(Paint.Style.FILL);
+                float[] at = {-0.05f, 0.12f, -0.12f};
+                for (int i = -1; i <= 1; i++) {
+                    float lx = cx + i * s * 0.28f, ly = cy + at[i + 1] * s;
+                    c.drawRoundRect(new RectF(lx - s * 0.11f, ly - s * 0.11f, lx + s * 0.11f, ly + s * 0.11f), s * 0.04f, s * 0.04f, p);
+                }
+                break;
+            }
+            case TV: { // экран с «кнопкой воспроизведения» и антенной
+                p.setStyle(Paint.Style.STROKE);
+                p.setStrokeWidth(sw * 0.85f);
+                RectF scr = new RectF(cx - s * 0.42f, cy - s * 0.22f, cx + s * 0.42f, cy + s * 0.38f);
+                c.drawRoundRect(scr, s * 0.07f, s * 0.07f, p);
+                c.drawLine(cx - s * 0.16f, cy - s * 0.42f, cx, cy - s * 0.24f, p);
+                c.drawLine(cx + s * 0.16f, cy - s * 0.42f, cx, cy - s * 0.24f, p);
+                p.setStyle(Paint.Style.FILL);
+                Path tri = new Path();
+                tri.moveTo(cx - s * 0.08f, cy - s * 0.04f);
+                tri.lineTo(cx + s * 0.12f, cy + s * 0.08f);
+                tri.lineTo(cx - s * 0.08f, cy + s * 0.2f);
+                tri.close();
+                c.drawPath(tri, p);
                 break;
             }
             case PLUS: {
