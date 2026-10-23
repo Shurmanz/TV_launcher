@@ -61,11 +61,13 @@ final class Apps {
         collect(map, Intent.CATEGORY_LEANBACK_LAUNCHER);
         collect(map, Intent.CATEGORY_LAUNCHER);
         map.remove(ctx.getPackageName());
+        // телефонные «Настройки» дублируют наш ярлык TV-настроек
+        map.remove("com.android.settings");
+        boolean sysTv = map.containsKey("com.android.tv.settings");
         List<App> list = new ArrayList<>(map.values());
         Collator col = Collator.getInstance(new Locale("ru"));
         list.sort((a, b) -> col.compare(a.label, b.label));
-        // свой ярлык «Настройки» — только если системного приложения настроек нет (обычно оно есть)
-        if (!map.containsKey("com.android.tv.settings")) list.add(0, settingsApp());
+        if (!sysTv) list.add(0, settingsApp()); // свой ярлык «Настройки», если TV-настроек нет в списке
         return list;
     }
 
