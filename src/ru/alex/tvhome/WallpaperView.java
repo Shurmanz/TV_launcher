@@ -210,7 +210,10 @@ final class WallpaperView extends FrameLayout {
         current = entry;
         lastChange = SystemClock.elapsedRealtime();
         final ImageView in = back, out = front;
-        in.animate().cancel();
+        // прошлая смена могла ещё идти: без этого её конец стирал новое фото (чёрный фон)
+        in.animate().setListener(null).cancel();
+        out.animate().setListener(null).cancel();
+        if (out.getDrawable() != null) out.setAlpha(1f);
         in.setImageBitmap(bm);
         in.setAlpha(0f);
         in.setScaleX(1f);
@@ -219,7 +222,7 @@ final class WallpaperView extends FrameLayout {
         in.animate().alpha(1f).setDuration(FADE_MS).setInterpolator(new DecelerateInterpolator())
                 .setListener(new AnimatorListenerAdapter() {
                     @Override public void onAnimationEnd(Animator a) {
-                        out.setImageDrawable(null);
+                        if (front == in) out.setImageDrawable(null);
                         in.animate().setListener(null).scaleX(1.07f).scaleY(1.07f)
                                 .setDuration(Math.min(interval, 120_000L)).setInterpolator(new LinearInterpolator()).start();
                     }
