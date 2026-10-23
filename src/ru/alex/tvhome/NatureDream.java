@@ -7,7 +7,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 
-/** Заставка: те же фото природы, смена раз в 30 с, часы в левом нижнем углу. */
+/** Заставка: те же фото природы (раз в минуту, ночью реже и темнее), часы и погода слева внизу. */
 public class NatureDream extends DreamService {
     private WallpaperView wall;
 
@@ -19,7 +19,8 @@ public class NatureDream extends DreamService {
         setScreenBright(true);
 
         FrameLayout root = new FrameLayout(this);
-        wall = new WallpaperView(this, 30_000L);
+        Fonts.init(this);
+        wall = new WallpaperView(this, 60_000L);
         root.addView(wall, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         View scrim = new View(this);
@@ -32,12 +33,29 @@ public class NatureDream extends DreamService {
         scrim.setBackground(sg);
         root.addView(scrim, new FrameLayout.LayoutParams(Math.round(640 * d), Math.round(420 * d), Gravity.BOTTOM | Gravity.START));
 
-        ClockView clock = new ClockView(this, 56, Gravity.START);
+        View dim = new View(this);
+        dim.setBackgroundColor(0xFF000000);
+        dim.setAlpha(0f);
+        root.addView(dim, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        android.widget.LinearLayout box = new android.widget.LinearLayout(this);
+        box.setOrientation(android.widget.LinearLayout.VERTICAL);
+        android.widget.TextView weather = Ui.text(this, 17, 400, 0xE6FFFFFF);
+        ClockView clock = new ClockView(this, 56, weather);
+        clock.setNightListener(n -> {
+            dim.animate().alpha(n ? 0.5f : 0f).setDuration(1500).start();
+            wall.setInterval(n ? 5 * 60_000L : 60_000L);
+        });
+        box.addView(clock);
+        android.widget.LinearLayout.LayoutParams wl = new android.widget.LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        wl.topMargin = Math.round(12 * d);
+        box.addView(weather, wl);
         FrameLayout.LayoutParams cl = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM | Gravity.START);
         cl.setMargins(Math.round(64 * d), 0, 0, Math.round(56 * d));
-        root.addView(clock, cl);
-        wall.setListener(clock);
+        root.addView(box, cl);
+        wall.addListener(clock);
 
         setContentView(root);
     }

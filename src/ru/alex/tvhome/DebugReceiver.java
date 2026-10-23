@@ -37,7 +37,7 @@ public class DebugReceiver extends BroadcastReceiver {
                 if (intent.getBooleanExtra("reset", false)) {
                     android.content.SharedPreferences sp = app.getSharedPreferences("walls", Context.MODE_PRIVATE);
                     android.content.SharedPreferences.Editor ed = sp.edit();
-                    for (String k : sp.getAll().keySet()) if (!k.startsWith("tpl") && !k.equals("minw")) ed.remove(k);
+                    for (String k : sp.getAll().keySet()) if (!k.startsWith("tpl") && !k.equals("minw") && !k.equals("hidden")) ed.remove(k);
                     ed.apply();
                     Log.i(Net.TAG, "debug: wallpaper lists reset");
                 }
@@ -51,6 +51,21 @@ public class DebugReceiver extends BroadcastReceiver {
                     long[] sun = Weather.sunTimes(System.currentTimeMillis());
                     Log.i(Net.TAG, "debug sun: " + new java.util.Date(sun[0]) + " / " + new java.util.Date(sun[1])
                             + " phase=" + Weather.phase(null, System.currentTimeMillis()));
+                }
+                if (intent.getBooleanExtra("inputs", false)) {
+                    for (TvInputs.In in : TvInputs.list(app)) {
+                        Log.i(Net.TAG, "input: " + in.label + " | " + in.id + " | type " + in.type
+                                + " | connected " + in.connected + " | device " + in.device);
+                    }
+                }
+                if (intent.getBooleanExtra("update", false)) {
+                    Updater.check(app, true, (a, n) -> Log.i(Net.TAG, "update available=" + a + " " + n));
+                }
+                if (intent.getBooleanExtra("scenes", false)) { // показать запросы для текущей сцены
+                    Weather.Phase ph = Weather.phase(null, System.currentTimeMillis());
+                    Weather.Sky sk = Weather.sky(WallpaperView.lastWeather);
+                    for (String qq : Wallpapers.queries(ph, sk)) Log.i(Net.TAG, "query: " + qq);
+                    Log.i(Net.TAG, "negatives: " + Wallpapers.PEOPLE + " " + Wallpapers.offSeason());
                 }
                 String q = intent.getStringExtra("q");
                 if (q != null) {

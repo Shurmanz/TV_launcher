@@ -3,9 +3,14 @@ package ru.alex.tvhome;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.List;
+import java.util.Locale;
+import java.util.TimeZone;
 
-/** Погода и фаза суток для Череповца через open-meteo.com (без ключа). */
+/** Погода, прогноз и фаза суток для Череповца (met.no, запасные — open-meteo и wttr.in). */
 final class Weather {
     // Центр Череповца
     static final double LAT = 59.127, LON = 37.909;
@@ -17,6 +22,17 @@ final class Weather {
     final int code;
     final long sunrise, sunset; // epoch millis
     final long fetchedAt;
+    /** Почасовой прогноз (до ~60 ч) и по дням (до 9 дней); пусты, если источник не met.no. */
+    final List<Hour> hours = new ArrayList<>();
+    final List<Day> days = new ArrayList<>();
+
+    static final class Hour {
+        long time; double temp; int code; double precip; boolean night;
+    }
+
+    static final class Day {
+        long date; double min = 99, max = -99, wind, precip; int code = -1; boolean noonFound;
+    }
 
     Weather(double temperature, int code, long sunrise, long sunset, long fetchedAt) {
         this.temperature = temperature;
@@ -47,15 +63,126 @@ final class Weather {
     private static Weather fetchMetNo() throws Exception {
         JSONObject o = new JSONObject(Net.getText(
                 "https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=" + LAT + "&lon=" + LON));
-        JSONObject first = o.getJSONObject("properties").getJSONArray("timeseries").getJSONObject(0)
-                .getJSONObject("data");
+        JSONArray ts = o.getJSONObject("properties").getJSONArray("timeseries");
+        JSONObject first = ts.getJSONObject(0).getJSONObject("data");
         double t = first.getJSONObject("instant").getJSONObject("details").getDouble("air_temperature");
-        String sym = "";
-        JSONObject next = first.optJSONObject("next_1_hours");
-        if (next == null) next = first.optJSONObject("next_6_hours");
-        if (next != null) sym = next.getJSONObject("summary").optString("symbol_code", "");
+        String sym = symbol(first, "next_1_hours");
+        if (sym.isEmpty()) sym = symbol(first, "next_6_hours");
         long[] sun = sunTimes(System.currentTimeMillis());
-        return new Weather(t, metToWmo(sym), sun[0], sun[1], System.currentTimeMillis());
+        Weather w = new Weather(t, metToWmo(sym), sun[0], sun[1], System.currentTimeMillis());
+        try { w.parseForecast(ts); } catch (Exception e) { Net.log("forecast", e); }
+        return w;
+    }
+
+    private static String symbol(JSONObject data, String key) {
+        JSONObject n = data.optJSONObject(key);
+        JSONObject sm = n == null ? null : n.optJSONObject("summary");
+        return sm == null ? "" : sm.optString("symbol_code", "");
+    }
+
+    private static double precip(JSONObject data, String key) {
+        JSONObject n = data.optJSONObject(key);
+        if (n == null) return 0;
+        JSONObject d = n.optJSONObject("details");
+        return d == null ? 0 : d.optDouble("precipitation_amount", 0);
+    }
+
+    private static final SimpleDateFormat ISO = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US);
+    static { ISO.setTimeZone(TimeZone.getTimeZone("UTC")); }
+
+    private void parseForecast(JSONArray ts) throws Exception {
+        long now = System.currentTimeMillis();
+        Calendar cal = Calendar.getInstance();
+        Day day = null;
+        for (int i = 0; i < ts.length(); i++) {
+            JSONObject e = ts.getJSONObject(i);
+            long time;
+            synchronized (ISO) { time = ISO.parse(e.getString("time")).getTime(); }
+            JSONObject data = e.getJSONObject("data");
+            JSONObject det = data.getJSONObject("instant").getJSONObject("details");
+            double temp = det.optDouble("air_temperature", 0);
+            double wind = det.optDouble("wind_speed", 0);
+            String s1 = symbol(data, "next_1_hours"), s6 = symbol(data, "next_6_hours");
+            boolean hourly = !s1.isEmpty();
+
+            if (hourly && time >= now - 3600_000L && hours.size() < 24) {
+                Hour h = new Hour();
+                h.time = time; h.temp = temp; h.code = metToWmo(s1); h.precip = precip(data, "next_1_hours");
+                h.night = s1.contains("night");
+                hours.add(h);
+            }
+
+            cal.setTimeInMillis(time);
+            int hod = cal.get(Calendar.HOUR_OF_DAY);
+            cal.set(Calendar.HOUR_OF_DAY, 0); cal.set(Calendar.MINUTE, 0);
+            cal.set(Calendar.SECOND, 0); cal.set(Calendar.MILLISECOND, 0);
+            long date = cal.getTimeInMillis();
+            if (day == null || day.date != date) {
+                if (days.size() >= 9) break;
+                day = new Day();
+                day.date = date;
+                days.add(day);
+            }
+            day.min = Math.min(day.min, temp);
+            day.max = Math.max(day.max, temp);
+            day.wind = Math.max(day.wind, wind);
+            if (hourly) day.precip += precip(data, "next_1_hours");
+            else if (!s6.isEmpty()) day.precip += precip(data, "next_6_hours");
+            String s = !s6.isEmpty() ? s6 : s1;
+            if (!s.isEmpty() && !day.noonFound && (hod >= 11 && hod <= 15 || day.code < 0)) {
+                day.code = metToWmo(s);
+                if (hod >= 11 && hod <= 15) day.noonFound = true;
+            }
+        }
+    }
+
+    /** Коротко о ближайших часах: «к 21:00 дождь», «к 15:00 без осадков», «ночью +2°». */
+    String hint() {
+        if (hours.size() < 3) return "";
+        long now = System.currentTimeMillis();
+        boolean wetNow = wet(code);
+        SimpleDateFormat hm = new SimpleDateFormat("HH:mm", new Locale("ru"));
+        for (Hour h : hours) {
+            if (h.time <= now || h.time > now + 12 * 3600_000L) continue;
+            if (!wetNow && wet(h.code)) return "к " + hm.format(h.time) + " " + word(h.code);
+            if (wetNow && !wet(h.code)) return "к " + hm.format(h.time) + " без осадков";
+        }
+        Calendar c = Calendar.getInstance();
+        int hourNow = c.get(Calendar.HOUR_OF_DAY);
+        double mn = 99, mx = -99;
+        for (Hour h : hours) {
+            if (h.time <= now || h.time > now + 12 * 3600_000L) continue;
+            mn = Math.min(mn, h.temp);
+            mx = Math.max(mx, h.temp);
+        }
+        if (mn > 90) return "";
+        return hourNow >= 12 || hourNow < 4 ? "ночью " + temp(mn) : "днём до " + temp(mx);
+    }
+
+    static boolean wet(int c) { return c >= 51; }
+
+    static String word(int c) {
+        if (c >= 95) return "гроза";
+        if ((c >= 71 && c <= 77) || c == 85 || c == 86) return "снег";
+        if (c >= 51 && c <= 57) return "морось";
+        if (c == 66 || c == 67) return "мокрый снег";
+        return c >= 80 ? "ливень" : "дождь";
+    }
+
+    static String temp(double t) {
+        long r = Math.round(t);
+        return (r > 0 ? "+" : "") + r + "°";
+    }
+
+    /** Значок погоды (эмодзи) для панели прогноза. */
+    static String emoji(int c, boolean night) {
+        if (c >= 95) return "⛈";
+        if ((c >= 71 && c <= 77) || c == 85 || c == 86) return "🌨";
+        if (c >= 51) return "🌧";
+        if (c == 45 || c == 48) return "🌫";
+        if (c == 3) return "☁";
+        if (c == 2) return night ? "☁" : "⛅";
+        return night ? "🌙" : "☀";
     }
 
     /** Символы met.no ("lightrain", "partlycloudy_day", ...) -> близкие коды WMO. */
@@ -196,8 +323,7 @@ final class Weather {
         else if (c == 85 || c == 86) s = "снегопад";
         else if (c >= 95) s = "гроза";
         else s = "";
-        long t = Math.round(temperature);
-        String temp = (t > 0 ? "+" : "") + t + "°";
-        return s.isEmpty() ? temp : temp + "  " + s;
+        String temp = temp(temperature);
+        return s.isEmpty() ? temp : temp + " " + s;
     }
 }

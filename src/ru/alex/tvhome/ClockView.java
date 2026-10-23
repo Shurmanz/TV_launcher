@@ -1,54 +1,92 @@
 package ru.alex.tvhome;
 
 import android.content.Context;
-import android.graphics.Typeface;
 import android.os.Handler;
 import android.os.Looper;
-import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import java.text.SimpleDateFormat;
+import java.util.Calendar;
 import java.util.Date;
 import java.util.Locale;
 
-/** Часы, дата и погода. */
+/**
+ * Шапка: «ДОБРЫЙ ВЕЧЕР», крупные тонкие часы | «ПЯТНИЦА, 23 ОКТЯБРЯ».
+ * Строку погоды (если нужна) показывает отдельный TextView — его передают снаружи.
+ */
 final class ClockView extends LinearLayout implements WallpaperView.Listener {
-    private static final Locale RU = new Locale("ru");
-    private final TextView time, date, weather;
-    private final Handler ui = new Handler(Looper.getMainLooper());
+    interface NightListener { void onNight(boolean night); }
 
-    ClockView(Context ctx, float timeSp, int gravity) {
+    private static final Locale RU = new Locale("ru");
+    private final TextView greeting, time, date;
+    private final TextView weather; // может быть null
+    private final Handler ui = new Handler(Looper.getMainLooper());
+    private NightListener nightListener;
+    private Boolean night;
+    private Weather lastWeather;
+
+    ClockView(Context ctx, float timeSp, TextView weatherView) {
         super(ctx);
         setOrientation(VERTICAL);
-        setGravity(gravity);
-        time = text(timeSp, "sans-serif-light", 0xFFFFFFFF);
-        date = text(timeSp * 0.28f, "sans-serif", 0xE6FFFFFF);
-        weather = text(timeSp * 0.28f, "sans-serif", 0xCCFFFFFF);
-        addView(time);
-        addView(date);
-        addView(weather);
+        weather = weatherView;
+        greeting = Ui.text(ctx, timeSp * 0.2f, 400, 0x99FFFFFF);
+        greeting.setLetterSpacing(0.28f);
+        addView(greeting);
+
+        LinearLayout row = new LinearLayout(ctx);
+        row.setOrientation(HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        time = Ui.text(ctx, timeSp, 200, 0xFFFFFFFF);
+        time.setLetterSpacing(-0.01f);
+        row.addView(time);
+        View bar = new View(ctx);
+        bar.setBackgroundColor(0x40FFFFFF);
+        LayoutParams bl = new LayoutParams(Ui.dp(ctx, 1), Math.round(timeSp * 0.5f * getResources().getDisplayMetrics().density));
+        bl.setMargins(Ui.dp(ctx, 22), Ui.dp(ctx, 6), Ui.dp(ctx, 22), 0);
+        row.addView(bar, bl);
+        date = Ui.text(ctx, timeSp * 0.24f, 400, 0x99FFFFFF);
+        date.setLetterSpacing(0.18f);
+        LayoutParams dl = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
+        dl.topMargin = Ui.dp(ctx, 6);
+        row.addView(date, dl);
+        LayoutParams rl = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
+        rl.topMargin = Ui.dp(ctx, 4);
+        addView(row, rl);
     }
 
-    private TextView text(float sp, String family, int color) {
-        TextView t = new TextView(getContext());
-        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
-        t.setTypeface(Typeface.create(family, Typeface.NORMAL));
-        t.setTextColor(color);
-        float d = getResources().getDisplayMetrics().density;
-        t.setShadowLayer(6 * d, 0, d, 0x99000000);
-        t.setIncludeFontPadding(false);
-        return t;
+    void setNightListener(NightListener l) { nightListener = l; }
+
+    static boolean isNight() {
+        int h = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
+        return h >= 23 || h < 7;
+    }
+
+    static String greeting() {
+        int h = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
+        if (h >= 5 && h < 12) return "ДОБРОЕ УТРО";
+        if (h >= 12 && h < 17) return "ДОБРЫЙ ДЕНЬ";
+        if (h >= 17 && h < 23) return "ДОБРЫЙ ВЕЧЕР";
+        return "ДОБРОЙ НОЧИ";
     }
 
     private final Runnable tick = new Runnable() {
         @Override public void run() {
             Date now = new Date();
             time.setText(new SimpleDateFormat("HH:mm", RU).format(now));
-            String d = new SimpleDateFormat("EEEE, d MMMM", RU).format(now);
-            date.setText(Character.toUpperCase(d.charAt(0)) + d.substring(1));
-            ui.postDelayed(this, 1000 - (System.currentTimeMillis() % 1000) + 5);
+            date.setText(new SimpleDateFormat("EEEE, d MMMM", RU).format(now).toUpperCase(RU));
+            greeting.setText(greeting());
+            boolean n = isNight();
+            if (night == null || night != n) {
+                night = n;
+                setAlpha(n ? 0.6f : 1f);
+                if (weather != null) weather.setAlpha(n ? 0.6f : 1f);
+                if (nightListener != null) nightListener.onNight(n);
+            }
+            if (lastWeather != null && weather != null) onWeather(lastWeather); // «к 21:00» сдвигается со временем
+            ui.postDelayed(this, 60_000 - (System.currentTimeMillis() % 60_000) + 50);
         }
     };
 
@@ -56,8 +94,9 @@ final class ClockView extends LinearLayout implements WallpaperView.Listener {
     @Override protected void onDetachedFromWindow() { ui.removeCallbacks(tick); super.onDetachedFromWindow(); }
 
     @Override public void onWeather(Weather w) {
-        weather.setText(w == null ? "" : "Череповец  " + w.describe());
+        lastWeather = w;
+        if (weather == null || w == null) return;
+        String h = w.hint();
+        weather.setText(w.describe() + (h.isEmpty() ? "" : "  ·  " + h));
     }
-
-    static int gravityEnd() { return Gravity.END; }
 }

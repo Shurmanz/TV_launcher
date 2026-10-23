@@ -3,51 +3,72 @@ package ru.alex.tvhome;
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.graphics.Outline;
-import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
+import android.net.wifi.WifiInfo;
+import android.net.wifi.WifiManager;
 import android.os.Bundle;
-import android.util.TypedValue;
+import android.provider.Settings;
+import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewOutlineProvider;
-import android.view.animation.DecelerateInterpolator;
 import android.widget.FrameLayout;
-import android.widget.GridLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 
 public class HomeActivity extends Activity {
-    private static final long WALL_INTERVAL = 60_000L;
+    private static final long WALL_DAY = 10 * 60_000L;
+    private static final long WALL_NIGHT = 30 * 60_000L;
+    private static final int COLS = 5;
 
     private Apps apps;
-    private FrameLayout root;
+    private FrameLayout root, content;
     private WallpaperView wall;
-    private TextView focusLabel;
-    private LinearLayout dockRow;
-    private FrameLayout overlay;
+    private View nightDim;
+    private GlowView glow;
+    private ClockView clock;
+    private TextView weatherBtn, netLabel, moveHint;
+    private Icon netIcon, settingsIcon;
+    private ScrollView scroll;
+    private LinearLayout grid;
+    private Panel panel;
+    private View beforePanel;
     private boolean resumed;
+    private String moving; // пакет, который сейчас перемещаем
+    private int tileW, tileH;
 
     private List<Apps.App> allApps = new ArrayList<>();
+    private List<Apps.App> dock = new ArrayList<>();
+    private final Map<String, Integer> accents = new HashMap<>();
+    private ConnectivityManager.NetworkCallback netCb;
 
     // ---------- жизненный цикл ----------
 
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
+        Fonts.init(this);
         apps = new Apps(this);
         BootReceiver.ensureService(this);
         buildUi();
@@ -57,6 +78,7 @@ public class HomeActivity extends Activity {
         f.addAction(Intent.ACTION_PACKAGE_CHANGED);
         f.addDataScheme("package");
         registerReceiver(pkgReceiver, f);
+        watchNetwork();
     }
 
     @Override
@@ -65,6 +87,8 @@ public class HomeActivity extends Activity {
         resumed = true;
         reloadApps();
         wall.start();
+        updateNet();
+        Updater.check(this, false, (avail, name) -> settingsIcon.setDot(avail));
     }
 
     @Override
@@ -72,26 +96,32 @@ public class HomeActivity extends Activity {
         super.onPause();
         resumed = false;
         wall.stop();
+        if (moving != null) endMove();
     }
 
     @Override
     protected void onNewIntent(Intent intent) {
         setIntent(intent);
         super.onNewIntent(intent);
-        closeOverlay();
-        focusFirstDock();
+        closePanel();
+        if (moving != null) endMove();
+        focusFirstTile();
     }
 
     @Override
     protected void onDestroy() {
         unregisterReceiver(pkgReceiver);
+        try {
+            if (netCb != null) ((ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE)).unregisterNetworkCallback(netCb);
+        } catch (Exception ignored) { }
         wall.release();
         super.onDestroy();
     }
 
     @Override
     public void onBackPressed() {
-        if (overlay != null) closeOverlay();
+        if (moving != null) { endMove(); return; }
+        if (panel != null) closePanel();
         // на домашнем экране «Назад» ничего не делает
     }
 
@@ -99,200 +129,310 @@ public class HomeActivity extends Activity {
         @Override public void onReceive(Context c, Intent i) { if (resumed) reloadApps(); }
     };
 
-    // ---------- разметка ----------
+    private int dp(float v) { return Ui.dp(this, v); }
 
-    private int dp(float v) {
-        return Math.round(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, getResources().getDisplayMetrics()));
-    }
+    // ---------- разметка ----------
 
     private void buildUi() {
         getWindow().getDecorView().setSystemUiVisibility(
                 View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
         root = new FrameLayout(this);
         root.setBackgroundColor(0xFF0B0F14);
+        root.setClipChildren(false);
 
-        wall = new WallpaperView(this, WALL_INTERVAL);
-        root.addView(wall, matchParent());
+        wall = new WallpaperView(this, WALL_DAY);
+        wall.setScaleX(1.06f); // запас под параллакс
+        wall.setScaleY(1.06f);
+        root.addView(wall, match());
 
-        // затемнение снизу под док и сверху справа под часы
+        nightDim = new View(this);
+        nightDim.setBackgroundColor(0xFF000000);
+        nightDim.setAlpha(0f);
+        root.addView(nightDim, match());
+
+        View topScrim = new View(this);
+        topScrim.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{0xA6000000, 0x40000000, 0x00000000}));
+        root.addView(topScrim, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(230), Gravity.TOP));
         View bottomScrim = new View(this);
         bottomScrim.setBackground(new GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP,
                 new int[]{0xCC000000, 0x66000000, 0x00000000}));
-        FrameLayout.LayoutParams bl = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(300), Gravity.BOTTOM);
-        root.addView(bottomScrim, bl);
+        root.addView(bottomScrim, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(330), Gravity.BOTTOM));
 
-        View topScrim = new View(this);
-        // радиальное затемнение: к краям прозрачность ровно 0, без видимой «рамки»
-        GradientDrawable tg = new GradientDrawable();
-        tg.setGradientType(GradientDrawable.RADIAL_GRADIENT);
-        tg.setColors(new int[]{0x8C000000, 0x33000000, 0x00000000});
-        tg.setGradientCenter(1f, 0f);
-        tg.setGradientRadius(dp(400));
-        topScrim.setBackground(tg);
-        root.addView(topScrim, new FrameLayout.LayoutParams(dp(640), dp(420), Gravity.TOP | Gravity.END));
+        glow = new GlowView(this);
+        root.addView(glow, match());
 
-        // часы, дата, погода
-        ClockView clockBox = new ClockView(this, 64, Gravity.END);
-        wall.setListener(clockBox);
+        content = new FrameLayout(this);
+        content.setClipChildren(false);
+        root.addView(content, match());
+
+        // --- слева: приветствие, часы, дата, погода
+        LinearLayout left = new LinearLayout(this);
+        left.setOrientation(LinearLayout.VERTICAL);
+        weatherBtn = Ui.text(this, 17, 400, 0xE6FFFFFF);
+        weatherBtn.setText("Погода загружается…");
+        weatherBtn.setPadding(dp(14), dp(8), dp(14), dp(8));
+        weatherBtn.setFocusable(true);
+        weatherBtn.setOnFocusChangeListener((v, has) -> {
+            v.setBackground(has ? Ui.round(0xF2FFFFFF, dp(100), 0, 0) : null);
+            weatherBtn.setTextColor(has ? 0xFF111111 : 0xE6FFFFFF);
+            weatherBtn.setShadowLayer(has ? 0 : dp(6), 0, has ? 0 : dp(1), 0x80000000);
+            if (has) glow.hide();
+        });
+        weatherBtn.setOnClickListener(v -> openWeather());
+        clock = new ClockView(this, 58, weatherBtn);
+        clock.setNightListener(this::applyNight);
+        wall.addListener(clock);
+        left.addView(clock);
+        LinearLayout.LayoutParams wl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        wl.setMargins(-dp(14), dp(10), 0, 0);
+        left.addView(weatherBtn, wl);
+        FrameLayout.LayoutParams ll = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP | Gravity.START);
+        ll.setMargins(dp(64), dp(38), 0, 0);
+        content.addView(left, ll);
+
+        // --- справа: Входы, сеть, Настройки
+        LinearLayout chips = new LinearLayout(this);
+        chips.setOrientation(LinearLayout.HORIZONTAL);
+        chips.addView(chip(new Icon(Icon.INPUT, 0xFFFFFFFF), "Входы", v -> openInputs(), null));
+        netIcon = new Icon(Icon.WIFI, 0xFFFFFFFF);
+        View net = chip(netIcon, "Wi‑Fi", v -> openSettings(Settings.ACTION_WIFI_SETTINGS), null);
+        netLabel = (TextView) ((ViewGroup) net).getChildAt(1);
+        chips.addView(net);
+        settingsIcon = new Icon(Icon.GEAR, 0xFFFFFFFF);
+        chips.addView(chip(settingsIcon, "Настройки", v -> openSettings(Settings.ACTION_SETTINGS),
+                v -> { openLibrary(null); return true; }));
         FrameLayout.LayoutParams cl = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP | Gravity.END);
-        cl.setMargins(0, dp(36), dp(56), 0);
-        root.addView(clockBox, cl);
+        cl.setMargins(0, dp(48), dp(52), 0);
+        content.addView(chips, cl);
 
-        // подпись под фокусом и док
-        focusLabel = text(18, Typeface.create("sans-serif-medium", Typeface.NORMAL), 0xFFFFFFFF);
-        focusLabel.setGravity(Gravity.CENTER_HORIZONTAL);
-        FrameLayout.LayoutParams fl = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM);
-        fl.bottomMargin = dp(40);
-        root.addView(focusLabel, fl);
+        // --- плитки: по 5 в строке, лишние — ниже, с прокруткой
+        int sw = getResources().getDisplayMetrics().widthPixels;
+        int side = dp(64), gap = dp(24);
+        tileW = (sw - 2 * side - (COLS - 1) * gap) / COLS;
+        tileH = Math.round(tileW * 9f / 16f);
 
-        dockRow = new LinearLayout(this);
-        dockRow.setOrientation(LinearLayout.HORIZONTAL);
-        dockRow.setGravity(Gravity.CENTER);
-        dockRow.setClipChildren(false);
-        dockRow.setClipToPadding(false);
-        dockRow.setPadding(dp(24), dp(16), dp(24), dp(16));
-        FrameLayout.LayoutParams dl = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+        scroll = new ScrollView(this);
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.setClipChildren(false);
+        scroll.setClipToPadding(false);
+        scroll.setFillViewport(true);
+        scroll.setSmoothScrollingEnabled(true);
+        scroll.setVerticalFadingEdgeEnabled(true);
+        scroll.setFadingEdgeLength(dp(30));
+        grid = new LinearLayout(this);
+        grid.setOrientation(LinearLayout.VERTICAL);
+        grid.setClipChildren(false);
+        grid.setClipToPadding(false);
+        grid.setPadding(side, dp(36), side, dp(70));
+        scroll.addView(grid, new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        FrameLayout.LayoutParams gl = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+        gl.topMargin = dp(236);
+        content.addView(scroll, gl);
+
+        moveHint = Ui.text(this, 15, 500, 0xFFFFFFFF);
+        moveHint.setText("←  →  ↑  ↓  — переместить     ОК — готово");
+        moveHint.setPadding(dp(20), dp(10), dp(20), dp(10));
+        moveHint.setBackground(Ui.round(0xCC1C1C1E, dp(100), dp(1), 0x33FFFFFF));
+        moveHint.setVisibility(View.GONE);
+        FrameLayout.LayoutParams ml = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
-        dl.bottomMargin = dp(76);
-        root.addView(dockRow, dl);
-        root.setClipChildren(false);
+        ml.bottomMargin = dp(28);
+        root.addView(moveHint, ml);
 
         setContentView(root);
     }
 
-    private FrameLayout.LayoutParams matchParent() {
+    private FrameLayout.LayoutParams match() {
         return new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
     }
 
-    private TextView text(float sp, Typeface tf, int color) {
-        TextView t = new TextView(this);
-        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
-        t.setTypeface(tf);
-        t.setTextColor(color);
-        t.setShadowLayer(dp(6), 0, dp(1), 0x99000000);
-        t.setIncludeFontPadding(false);
-        return t;
+    private View chip(Icon icon, String label, View.OnClickListener click, View.OnLongClickListener longClick) {
+        LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.HORIZONTAL);
+        c.setGravity(Gravity.CENTER_VERTICAL);
+        c.setPadding(dp(16), dp(10), dp(20), dp(10));
+        c.setFocusable(true);
+        Ui.pill(c, false);
+        ImageView iv = new ImageView(this);
+        iv.setImageDrawable(icon);
+        c.addView(iv, new LinearLayout.LayoutParams(dp(20), dp(20)));
+        TextView t = Ui.text(this, 16, 500, 0xFFFFFFFF);
+        t.setShadowLayer(0, 0, 0, 0);
+        t.setText(label);
+        LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        tl.leftMargin = dp(10);
+        c.addView(t, tl);
+        c.setOnFocusChangeListener((v, has) -> {
+            Ui.pill(v, has);
+            icon.setColor(has ? 0xFF111111 : 0xFFFFFFFF);
+            t.setTextColor(has ? 0xFF111111 : 0xFFFFFFFF);
+            Ui.focusScale(v, has, 1.06f);
+            if (has) glow.hide();
+        });
+        c.setOnClickListener(click);
+        if (longClick != null) c.setOnLongClickListener(longClick);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.leftMargin = dp(12);
+        c.setLayoutParams(lp);
+        return c;
+    }
+
+    // ---------- ночной режим ----------
+
+    private void applyNight(boolean night) {
+        nightDim.animate().alpha(night ? 0.45f : 0f).setDuration(1500).start();
+        glow.setLevel(night ? 0.3f : 0.55f);
+        wall.setInterval(night ? WALL_NIGHT : WALL_DAY);
     }
 
     // ---------- плитки ----------
 
-    private View tile(Apps.App app, int w, int h, boolean inDock) {
+    private int accent(Apps.App a) {
+        Integer c = accents.get(a.pkg);
+        if (c == null) {
+            c = Ui.accent(a.banner != null ? a.banner : a.icon);
+            accents.put(a.pkg, c);
+        }
+        return c;
+    }
+
+    private View cell(Apps.App app, int index) {
+        LinearLayout cell = new LinearLayout(this);
+        cell.setOrientation(LinearLayout.VERTICAL);
+        cell.setGravity(Gravity.CENTER_HORIZONTAL);
+        cell.setClipChildren(false);
+
         FrameLayout card = new FrameLayout(this);
-        GradientDrawable bgd = new GradientDrawable();
-        bgd.setCornerRadius(dp(14));
-        bgd.setColor(0x33FFFFFF);
-        card.setBackground(bgd);
+        float r = dp(14);
+        card.setBackground(Ui.round(0x33FFFFFF, r, 0, 0));
         card.setOutlineProvider(new ViewOutlineProvider() {
-            @Override public void getOutline(View v, Outline o) { o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), dp(14)); }
+            @Override public void getOutline(View v, Outline o) { o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), r); }
         });
         card.setClipToOutline(true);
         card.setFocusable(true);
-        card.setFocusableInTouchMode(true);
         card.setElevation(dp(2));
-
         ImageView img = new ImageView(this);
-        if (app.banner != null) {
+        if (app == null) { // «Добавить приложение», когда главный экран пуст
+            img.setImageDrawable(new Icon(Icon.PLUS, 0xFFFFFFFF));
+            card.addView(img, new FrameLayout.LayoutParams(tileH / 3, tileH / 3, Gravity.CENTER));
+        } else if (app.banner != null) {
             img.setScaleType(ImageView.ScaleType.CENTER_CROP);
             img.setImageDrawable(app.banner);
-            card.addView(img, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            card.addView(img, match());
         } else {
             img.setScaleType(ImageView.ScaleType.FIT_CENTER);
             img.setImageDrawable(app.icon);
-            FrameLayout.LayoutParams il = new FrameLayout.LayoutParams(Math.round(h * 0.5f), Math.round(h * 0.5f), Gravity.CENTER);
-            il.topMargin = -Math.round(h * 0.08f);
-            card.addView(img, il);
-            TextView name = text(13, Typeface.create("sans-serif-medium", Typeface.NORMAL), 0xFFFFFFFF);
-            name.setText(app.label);
-            name.setSingleLine(true);
-            name.setGravity(Gravity.CENTER);
-            FrameLayout.LayoutParams nl = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM);
-            nl.bottomMargin = dp(8);
-            card.addView(name, nl);
+            card.addView(img, new FrameLayout.LayoutParams(Math.round(tileH * 0.56f), Math.round(tileH * 0.56f), Gravity.CENTER));
         }
+        cell.addView(card, new LinearLayout.LayoutParams(tileW, tileH));
 
+        TextView label = Ui.text(this, 16, 500, 0xFFFFFFFF);
+        label.setText(app == null ? "Добавить приложение" : app.label);
+        label.setSingleLine(true);
+        label.setEllipsize(TextUtils.TruncateAt.END);
+        label.setGravity(Gravity.CENTER);
+        label.setAlpha(0f);
+        LinearLayout.LayoutParams ll = new LinearLayout.LayoutParams(tileW + dp(20), ViewGroup.LayoutParams.WRAP_CONTENT);
+        ll.topMargin = dp(16);
+        cell.addView(label, ll);
+
+        card.setTag(app == null ? "" : app.pkg);
         card.setOnFocusChangeListener((v, has) -> {
-            float s = has ? 1.12f : 1f;
-            v.animate().scaleX(s).scaleY(s).translationZ(has ? dp(18) : 0)
-                    .setInterpolator(new DecelerateInterpolator()).setDuration(160).start();
-            if (has && inDock) focusLabel.setText(app.label);
-            else if (inDock && !dockHasFocus()) focusLabel.setText("");
+            Ui.focusScale(v, has, 1.1f);
+            label.animate().alpha(has ? 1f : 0f).translationY(has ? dp(4) : 0).setDuration(170).start();
+            if (has) onTileFocused(v, app, index);
         });
-        card.setOnClickListener(v -> launch(app));
-        card.setOnLongClickListener(v -> { editMenu(app, inDock); return true; });
-        card.setTag(app.pkg);
-        card.setLayoutParams(new ViewGroup.LayoutParams(w, h));
-        return card;
+        card.setOnClickListener(v -> {
+            if (moving != null) { endMove(); return; }
+            if (app == null) { openLibrary(null); return; }
+            glow.pulse();
+            v.animate().scaleX(0.97f).scaleY(0.97f).setDuration(90).withEndAction(() ->
+                    v.animate().scaleX(1.1f).scaleY(1.1f).setDuration(120).start()).start();
+            v.postDelayed(() -> launch(app), 170);
+        });
+        card.setOnLongClickListener(v -> {
+            if (moving == null) openLibrary(app);
+            return true;
+        });
+        return cell;
     }
 
-    private boolean dockHasFocus() {
-        View f = getCurrentFocus();
-        return f != null && f.getParent() == dockRow;
-    }
-
-    private View allAppsTile(int w, int h) {
-        FrameLayout card = new FrameLayout(this);
-        GradientDrawable bgd = new GradientDrawable();
-        bgd.setCornerRadius(dp(14));
-        bgd.setColor(0x40FFFFFF);
-        bgd.setStroke(dp(1), 0x40FFFFFF);
-        card.setBackground(bgd);
-        card.setFocusable(true);
-        card.setFocusableInTouchMode(true);
-        TextView dots = text(30, Typeface.create("sans-serif-light", Typeface.NORMAL), 0xFFFFFFFF);
-        dots.setText("⋯");
-        dots.setGravity(Gravity.CENTER);
-        card.addView(dots, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        card.setOnFocusChangeListener((v, has) -> {
-            float s = has ? 1.12f : 1f;
-            v.animate().scaleX(s).scaleY(s).translationZ(has ? dp(18) : 0).setDuration(160).start();
-            if (has) focusLabel.setText("Все приложения");
+    private void onTileFocused(View card, Apps.App app, int index) {
+        card.post(() -> {
+            int[] a = new int[2], b = new int[2];
+            card.getLocationInWindow(a);
+            root.getLocationInWindow(b);
+            float cx = a[0] - b[0] + card.getWidth() / 2f;
+            float cy = a[1] - b[1] + card.getHeight() / 2f;
+            glow.moveTo(cx, cy, app == null ? 0xFF8A9BB5 : accent(app));
         });
-        card.setOnClickListener(v -> openOverlay());
-        card.setLayoutParams(new ViewGroup.LayoutParams(w, h));
-        return card;
+        // параллакс: фон чуть смещается вслед за фокусом
+        int col = index % COLS, row = index / COLS;
+        wall.animate().translationX((2 - col) * dp(9)).translationY(-Math.min(row, 3) * dp(6))
+                .setDuration(900).setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
     }
 
     private void reloadApps() {
         String focusedPkg = null;
         View f = getCurrentFocus();
         if (f != null && f.getTag() instanceof String) focusedPkg = (String) f.getTag();
-
         allApps = apps.all();
-        dockRow.removeAllViews();
-        List<Apps.App> dock = apps.dock(allApps);
-        int gap = dp(24);
-        int avail = getResources().getDisplayMetrics().widthPixels - dp(120);
-        float units = dock.size() + 0.56f;
-        int w = Math.min(dp(176), Math.round((avail - (dock.size() + 1) * gap) / units));
-        int h = Math.round(w * 9f / 16f);
-        for (Apps.App a : dock) {
-            View t = tile(a, w, h, true);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(w, h);
-            lp.setMargins(gap / 2, 0, gap / 2, 0);
-            dockRow.addView(t, lp);
-        }
-        int mw = Math.round(w * 0.56f);
-        View more = allAppsTile(mw, h);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(mw, h);
-        lp.setMargins(gap / 2, 0, gap / 2, 0);
-        dockRow.addView(more, lp);
-
-        if (overlay == null) {
-            View target = null;
-            for (int i = 0; i < dockRow.getChildCount(); i++) {
-                View c = dockRow.getChildAt(i);
-                if (focusedPkg != null && focusedPkg.equals(c.getTag())) target = c;
-            }
-            if (target == null) target = dockRow.getChildAt(0);
-            target.requestFocus();
-        }
+        dock = apps.dock(allApps);
+        rebuildGrid(focusedPkg != null ? focusedPkg : (f == null ? null : ""), f != null && !(f.getTag() instanceof String));
     }
 
-    private void focusFirstDock() {
-        if (dockRow.getChildCount() > 0) dockRow.getChildAt(0).requestFocus();
+    /** Перестроить сетку; focusPkg — какую плитку выделить (null — первую). */
+    private void rebuildGrid(String focusPkg, boolean keepOtherFocus) {
+        grid.removeAllViews();
+        int gap = dp(24);
+        List<Apps.App> items = new ArrayList<>(dock);
+        if (items.isEmpty()) items.add(null);
+        LinearLayout row = null;
+        for (int i = 0; i < items.size(); i++) {
+            if (i % COLS == 0) {
+                row = new LinearLayout(this);
+                row.setOrientation(LinearLayout.HORIZONTAL);
+                row.setClipChildren(false);
+                LinearLayout.LayoutParams rl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                if (i > 0) rl.topMargin = dp(8);
+                grid.addView(row, rl);
+            }
+            View c = cell(items.get(i), i);
+            LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(tileW, ViewGroup.LayoutParams.WRAP_CONTENT);
+            if (i % COLS > 0) cp.leftMargin = gap;
+            row.addView(c, cp);
+        }
+        if (panel != null || keepOtherFocus) return;
+        View target = findTile(focusPkg);
+        if (target == null) target = tileAt(0);
+        if (target != null) target.requestFocus();
+    }
+
+    private View tileAt(int i) {
+        int r = i / COLS, c = i % COLS;
+        if (r >= grid.getChildCount()) return null;
+        ViewGroup row = (ViewGroup) grid.getChildAt(r);
+        if (c >= row.getChildCount()) return null;
+        return ((ViewGroup) row.getChildAt(c)).getChildAt(0);
+    }
+
+    private View findTile(String pkg) {
+        if (pkg == null) return null;
+        for (int i = 0; i < dock.size(); i++) if (dock.get(i).pkg.equals(pkg)) return tileAt(i);
+        return null;
+    }
+
+    private int tileIndex(View v) {
+        for (int i = 0; i < Math.max(1, dock.size()); i++) if (tileAt(i) == v) return i;
+        return -1;
+    }
+
+    private void focusFirstTile() {
+        View t = tileAt(0);
+        if (t != null) t.requestFocus();
     }
 
     private void launch(Apps.App app) {
@@ -303,104 +443,461 @@ public class HomeActivity extends Activity {
         }
     }
 
-    // ---------- все приложения ----------
-
-    private void openOverlay() {
-        if (overlay != null) return;
-        overlay = new FrameLayout(this);
-        overlay.setBackgroundColor(0xE60B0F14);
-        overlay.setAlpha(0f);
-
-        ScrollView sv = new ScrollView(this);
-        sv.setClipChildren(false);
-        sv.setClipToPadding(false);
-        sv.setPadding(dp(80), dp(40), dp(80), dp(40));
-        LinearLayout col = new LinearLayout(this);
-        col.setOrientation(LinearLayout.VERTICAL);
-        col.setClipChildren(false);
-
-        TextView title = text(28, Typeface.create("sans-serif-medium", Typeface.NORMAL), 0xFFFFFFFF);
-        title.setText("Приложения");
-        col.addView(title);
-        TextView hint = text(14, Typeface.DEFAULT, 0x99FFFFFF);
-        hint.setText("Удерживайте ОК, чтобы добавить приложение в док");
-        LinearLayout.LayoutParams hl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        hl.topMargin = dp(6);
-        hl.bottomMargin = dp(24);
-        col.addView(hint, hl);
-
-        GridLayout grid = new GridLayout(this);
-        grid.setColumnCount(5);
-        grid.setClipChildren(false);
-        int w = dp(176), h = dp(99), m = dp(12);
-        for (Apps.App a : allApps) {
-            View t = tile(a, w, h, false);
-            GridLayout.LayoutParams gl = new GridLayout.LayoutParams();
-            gl.width = w;
-            gl.height = h;
-            gl.setMargins(m, m, m, m);
-            grid.addView(t, gl);
+    private void openSettings(String action) {
+        try {
+            startActivity(new Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        } catch (Exception e) {
+            try { startActivity(new Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); }
+            catch (Exception ignored) { }
         }
-        col.addView(grid);
-        sv.addView(col);
-        overlay.addView(sv, matchParent());
-        root.addView(overlay, matchParent());
-        overlay.animate().alpha(1f).setDuration(180).start();
-        if (grid.getChildCount() > 0) grid.getChildAt(0).requestFocus();
     }
 
-    private void closeOverlay() {
-        if (overlay == null) return;
-        final View o = overlay;
-        overlay = null;
-        o.animate().alpha(0f).setDuration(150).setListener(new AnimatorListenerAdapter() {
-            @Override public void onAnimationEnd(Animator a) { root.removeView(o); }
-        }).start();
-        focusFirstDock();
+    // ---------- перемещение плитки ----------
+
+    private void startMove(String pkg) {
+        closePanel();
+        moving = pkg;
+        moveHint.setVisibility(View.VISIBLE);
+        View t = findTile(pkg);
+        if (t != null) {
+            t.requestFocus();
+            t.setForeground(Ui.round(0, dp(14), dp(3), 0xFFFFFFFF));
+        }
     }
 
-    // ---------- правка дока ----------
+    private void endMove() {
+        View t = findTile(moving);
+        if (t != null) t.setForeground(null);
+        moving = null;
+        moveHint.setVisibility(View.GONE);
+    }
 
-    private void editMenu(Apps.App app, boolean inDock) {
-        List<String> dock = apps.dockPackages();
-        int pos = dock.indexOf(app.pkg);
-        List<String> items = new ArrayList<>();
-        List<Runnable> acts = new ArrayList<>();
-        if (pos < 0) {
-            items.add("Добавить в док");
-            acts.add(() -> { dock.add(app.pkg); apps.saveDock(dock); });
-        } else {
-            if (pos > 0) {
-                items.add("Сдвинуть влево");
-                acts.add(() -> { dock.remove(pos); dock.add(pos - 1, app.pkg); apps.saveDock(dock); });
-            }
-            if (pos < dock.size() - 1) {
-                items.add("Сдвинуть вправо");
-                acts.add(() -> { dock.remove(pos); dock.add(pos + 1, app.pkg); apps.saveDock(dock); });
-            }
-            items.add("Убрать из дока");
-            acts.add(() -> { dock.remove(pos); apps.saveDock(dock); });
-        }
-        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                .setTitle(app.label)
-                .setItems(items.toArray(new String[0]), (d, which) -> {
-                    acts.get(which).run();
-                    if (overlay != null && !inDock) closeOverlay();
-                    reloadApps();
-                    for (int i = 0; i < dockRow.getChildCount(); i++) {
-                        if (app.pkg.equals(dockRow.getChildAt(i).getTag())) dockRow.getChildAt(i).requestFocus();
-                    }
-                })
-                .show();
+    private boolean moveBy(int delta) {
+        List<String> pk = apps.dockPackages();
+        // работаем по реальному порядку дока (без удалённых приложений)
+        List<String> d = new ArrayList<>();
+        for (Apps.App a : dock) d.add(a.pkg);
+        int i = d.indexOf(moving);
+        int j = Math.max(0, Math.min(d.size() - 1, i + delta));
+        if (i < 0 || j == i) return true;
+        d.remove(i);
+        d.add(j, moving);
+        for (String p : pk) if (!d.contains(p)) d.add(p); // сохранить и временно недоступные
+        apps.saveDock(d);
+        dock = apps.dock(allApps);
+        String m = moving;
+        rebuildGrid(m, false);
+        View t = findTile(m);
+        if (t != null) t.setForeground(Ui.round(0, dp(14), dp(3), 0xFFFFFFFF));
+        return true;
     }
 
     @Override
-    public boolean onKeyDown(int keyCode, KeyEvent event) {
-        if (keyCode == KeyEvent.KEYCODE_MENU) {
-            View f = getCurrentFocus();
-            if (f != null) f.performLongClick();
-            return true;
+    public boolean dispatchKeyEvent(KeyEvent e) {
+        if (e.getAction() == KeyEvent.ACTION_DOWN && moving != null && panel == null) {
+            switch (e.getKeyCode()) {
+                case KeyEvent.KEYCODE_DPAD_LEFT: return moveBy(-1);
+                case KeyEvent.KEYCODE_DPAD_RIGHT: return moveBy(1);
+                case KeyEvent.KEYCODE_DPAD_UP: return moveBy(-COLS);
+                case KeyEvent.KEYCODE_DPAD_DOWN: return moveBy(COLS);
+                case KeyEvent.KEYCODE_DPAD_CENTER:
+                case KeyEvent.KEYCODE_ENTER:
+                    endMove();
+                    return true;
+                default:
+                    break;
+            }
         }
-        return super.onKeyDown(keyCode, event);
+        if (e.getAction() == KeyEvent.ACTION_DOWN && panel == null && moving == null) {
+            int k = e.getKeyCode();
+            if (k == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || k == KeyEvent.KEYCODE_MEDIA_NEXT
+                    || k == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD || k == KeyEvent.KEYCODE_MEDIA_PLAY) {
+                nextPhoto();
+                return true;
+            }
+            if (k == KeyEvent.KEYCODE_DPAD_RIGHT) { // «вправо» с последней плитки строки — следующее фото
+                View f = getCurrentFocus();
+                int idx = f == null ? -1 : tileIndex(f);
+                if (idx >= 0 && (idx % COLS == COLS - 1 || idx == Math.max(1, dock.size()) - 1)) {
+                    nextPhoto();
+                    return true;
+                }
+            }
+            if (k == KeyEvent.KEYCODE_MENU) {
+                View f = getCurrentFocus();
+                int idx = f == null ? -1 : tileIndex(f);
+                openLibrary(idx >= 0 && idx < dock.size() ? dock.get(idx) : null);
+                return true;
+            }
+        }
+        return super.dispatchKeyEvent(e);
+    }
+
+    private void nextPhoto() {
+        wall.next();
+        Toast.makeText(this, "Следующее фото", Toast.LENGTH_SHORT).show();
+    }
+
+    // ---------- панели ----------
+
+    private void showPanel(Panel p, View first) {
+        closePanel();
+        beforePanel = getCurrentFocus();
+        panel = p;
+        content.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
+        p.setAlpha(0f);
+        root.addView(p, match());
+        p.animate().alpha(1f).setDuration(180).start();
+        glow.hide();
+        if (first != null) first.requestFocus();
+        else p.requestFocus();
+    }
+
+    private void closePanel() {
+        if (panel == null) return;
+        final View o = panel;
+        panel = null;
+        content.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
+        o.animate().alpha(0f).setDuration(150).setListener(new AnimatorListenerAdapter() {
+            @Override public void onAnimationEnd(Animator a) { root.removeView(o); }
+        }).start();
+        View back = beforePanel;
+        beforePanel = null;
+        if (back != null && back.isAttachedToWindow() && back.getParent() != null) back.requestFocus();
+        else focusFirstTile();
+    }
+
+    private static String plural(int n, String one, String few, String many) {
+        int m10 = n % 10, m100 = n % 100;
+        if (m10 == 1 && m100 != 11) return n + " " + one;
+        if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return n + " " + few;
+        return n + " " + many;
+    }
+
+    // --- библиотека приложений (долгое нажатие ОК / кнопка меню)
+
+    private void openLibrary(Apps.App ctx) {
+        Panel p = new Panel(this, "Библиотека приложений", "ОК — добавить на главный  ·  удерживать — открыть");
+        List<Apps.App> rest = new ArrayList<>();
+        for (Apps.App a : allApps) {
+            boolean in = false;
+            for (Apps.App d : dock) if (d.pkg.equals(a.pkg)) { in = true; break; }
+            if (!in) rest.add(a);
+        }
+        p.count.setText(plural(rest.size(), "приложение", "приложения", "приложений"));
+
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        View firstAction = null;
+        if (ctx != null) {
+            firstAction = addAction(actions, "Переместить «" + ctx.label + "»", () -> startMove(ctx.pkg));
+            addAction(actions, "Убрать с главного", () -> {
+                List<String> d = apps.dockPackages();
+                d.remove(ctx.pkg);
+                apps.saveDock(d);
+                closePanel();
+                reloadApps();
+            });
+        }
+        View next = addAction(actions, "Следующее фото", () -> { closePanel(); nextPhoto(); });
+        if (firstAction == null) firstAction = next;
+        if (wall.hasPhoto()) {
+            addAction(actions, "Скрыть это фото навсегда", () -> {
+                closePanel();
+                wall.hideCurrent();
+                Toast.makeText(this, "Это фото больше не появится", Toast.LENGTH_SHORT).show();
+            });
+        }
+        LinearLayout.LayoutParams al = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        al.bottomMargin = dp(14);
+        p.body.addView(actions, al);
+
+        View firstCard = null;
+        if (rest.isEmpty()) {
+            TextView t = Ui.text(this, 16, 400, 0xB3FFFFFF);
+            t.setText("Все приложения уже на главном экране");
+            t.setPadding(0, dp(30), 0, dp(30));
+            p.body.addView(t);
+        } else {
+            LinearLayout strip = p.strip();
+            for (Apps.App a : rest) {
+                View card = libraryCard(a, strip, p);
+                if (firstCard == null) firstCard = card;
+            }
+        }
+        showPanel(p, firstCard != null ? firstCard : firstAction);
+    }
+
+    private View addAction(LinearLayout row, String text, Runnable r) {
+        TextView t = Panel.action(this, text, r);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        if (row.getChildCount() > 0) lp.leftMargin = dp(10);
+        row.addView(t, lp);
+        return t;
+    }
+
+    private View libraryCard(Apps.App a, LinearLayout strip, Panel p) {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setGravity(Gravity.CENTER_HORIZONTAL);
+        card.setPadding(dp(10), dp(16), dp(10), dp(12));
+        Panel.cardStyle(card, 22);
+        ImageView ic = new ImageView(this);
+        ic.setImageDrawable(a.icon);
+        card.addView(ic, new LinearLayout.LayoutParams(dp(60), dp(60)));
+        TextView name = Ui.text(this, 15, 500, 0xFFFFFFFF);
+        name.setShadowLayer(0, 0, 0, 0);
+        name.setText(a.label);
+        name.setGravity(Gravity.CENTER);
+        name.setMaxLines(2);
+        name.setEllipsize(TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams nl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        nl.topMargin = dp(12);
+        card.addView(name, nl);
+        TextView sub = Ui.text(this, 12, 400, 0xB3FFFFFF);
+        sub.setShadowLayer(0, 0, 0, 0);
+        sub.setText("Добавить на главный");
+        LinearLayout.LayoutParams sl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        sl.topMargin = dp(6);
+        card.addView(sub, sl);
+
+        card.setOnClickListener(v -> {
+            List<String> d = apps.dockPackages();
+            if (!d.contains(a.pkg)) d.add(a.pkg);
+            apps.saveDock(d);
+            dock = apps.dock(allApps);
+            rebuildGrid(null, true);
+            int i = strip.indexOfChild(v);
+            View nextFocus = strip.getChildCount() > 1
+                    ? strip.getChildAt(i + 1 < strip.getChildCount() ? i + 1 : i - 1) : null;
+            strip.removeView(v);
+            p.count.setText(plural(strip.getChildCount(), "приложение", "приложения", "приложений"));
+            Toast.makeText(this, "«" + a.label + "» на главном экране", Toast.LENGTH_SHORT).show();
+            if (nextFocus != null) nextFocus.requestFocus();
+            else closePanel();
+        });
+        card.setOnLongClickListener(v -> { closePanel(); launch(a); return true; });
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(150), dp(176));
+        if (strip.getChildCount() > 0) lp.leftMargin = dp(14);
+        strip.addView(card, lp);
+        return card;
+    }
+
+    // --- входы
+
+    private void openInputs() {
+        Panel p = new Panel(this, "Входы", "ОК — переключить");
+        List<TvInputs.In> list = TvInputs.list(this);
+        int conn = 0;
+        for (TvInputs.In i : list) if (i.connected && i.type != android.media.tv.TvInputInfo.TYPE_TUNER) conn++;
+        p.count.setText(plural(conn, "подключён", "подключено", "подключено"));
+        View first = null, firstConnected = null;
+        if (list.isEmpty()) {
+            TextView t = Ui.text(this, 16, 400, 0xB3FFFFFF);
+            t.setText("Список входов недоступен");
+            p.body.addView(t);
+            LinearLayout row = new LinearLayout(this);
+            first = addAction(row, "Открыть ТВ", () -> {
+                closePanel();
+                try { startActivity(new Intent(Intent.ACTION_MAIN).setComponent(TvInputs.TCL_TV).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); }
+                catch (Exception ignored) { }
+            });
+            p.body.addView(row);
+        } else {
+            LinearLayout strip = p.strip();
+            for (TvInputs.In in : list) {
+                LinearLayout card = new LinearLayout(this);
+                card.setOrientation(LinearLayout.VERTICAL);
+                card.setGravity(Gravity.CENTER);
+                card.setPadding(dp(12), dp(14), dp(12), dp(14));
+                Panel.cardStyle(card, 22);
+                ImageView ic = new ImageView(this);
+                ic.setImageDrawable(new Icon(in.type == android.media.tv.TvInputInfo.TYPE_TUNER ? Icon.ETHERNET : Icon.INPUT,
+                        in.connected ? 0xFFFFFFFF : 0x80FFFFFF));
+                card.addView(ic, new LinearLayout.LayoutParams(dp(34), dp(34)));
+                TextView name = Ui.text(this, 17, 500, in.connected ? 0xFFFFFFFF : 0x99FFFFFF);
+                name.setShadowLayer(0, 0, 0, 0);
+                name.setText(in.label);
+                name.setGravity(Gravity.CENTER);
+                LinearLayout.LayoutParams nl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                nl.topMargin = dp(10);
+                card.addView(name, nl);
+                TextView sub = Ui.text(this, 12, 400, in.connected ? 0xFF7CE38B : 0x80FFFFFF);
+                sub.setShadowLayer(0, 0, 0, 0);
+                sub.setSingleLine(true);
+                sub.setEllipsize(TextUtils.TruncateAt.END);
+                sub.setText(in.type == android.media.tv.TvInputInfo.TYPE_TUNER ? "Эфир и кабель"
+                        : in.device != null ? in.device : in.connected ? "Подключено" : "Не подключено");
+                LinearLayout.LayoutParams sl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                sl.topMargin = dp(4);
+                card.addView(sub, sl);
+                card.setOnClickListener(v -> {
+                    closePanel();
+                    if (!TvInputs.open(this, in)) Toast.makeText(this, "Не удалось переключить вход", Toast.LENGTH_SHORT).show();
+                });
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(140), dp(132));
+                if (strip.getChildCount() > 0) lp.leftMargin = dp(14);
+                strip.addView(card, lp);
+                if (first == null) first = card;
+                if (in.connected && firstConnected == null) firstConnected = card;
+            }
+        }
+        showPanel(p, firstConnected != null ? firstConnected : first);
+    }
+
+    // --- погода
+
+    private void openWeather() {
+        Weather w = WallpaperView.lastWeather;
+        Panel p = new Panel(this, "Погода · Череповец", null);
+        if (w == null) {
+            p.count.setText("");
+            TextView t = Ui.text(this, 16, 400, 0xB3FFFFFF);
+            t.setText("Погода ещё загружается — попробуйте через минуту");
+            p.body.addView(t);
+            LinearLayout row = new LinearLayout(this);
+            View ok = addAction(row, "Закрыть", this::closePanel);
+            p.body.addView(row);
+            showPanel(p, ok);
+            return;
+        }
+        p.count.setText("met.no · " + new SimpleDateFormat("HH:mm", Locale.US).format(w.fetchedAt));
+        TextView now = Ui.text(this, 18, 400, 0xFFFFFFFF);
+        now.setShadowLayer(0, 0, 0, 0);
+        String h = w.hint();
+        now.setText("Сейчас " + w.describe() + (h.isEmpty() ? "" : "  ·  " + h));
+        LinearLayout.LayoutParams nl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        nl.topMargin = dp(10);
+        nl.bottomMargin = dp(6);
+        p.body.addView(now, nl);
+
+        View first = null;
+        if (w.hours.isEmpty()) {
+            TextView t = Ui.text(this, 15, 400, 0xB3FFFFFF);
+            t.setText("Подробный прогноз сейчас недоступен");
+            p.body.addView(t);
+            LinearLayout row = new LinearLayout(this);
+            first = addAction(row, "Закрыть", this::closePanel);
+            p.body.addView(row);
+        } else {
+            SimpleDateFormat hm = new SimpleDateFormat("HH:mm", Locale.US);
+            LinearLayout hours = p.strip();
+            int n = 0;
+            for (Weather.Hour hr : w.hours) {
+                if (hr.time < System.currentTimeMillis() - 3600_000L) continue;
+                if (n++ >= 12) break;
+                LinearLayout c = smallCard(hm.format(hr.time), Weather.emoji(hr.code, hr.night), Weather.temp(hr.temp),
+                        hr.precip >= 0.1 ? String.format(Locale.US, "%.1f мм", hr.precip).replace('.', ',') : " ");
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(62), dp(112));
+                if (hours.getChildCount() > 0) lp.leftMargin = dp(6);
+                hours.addView(c, lp);
+                if (first == null) first = c;
+            }
+            TextView wk = Ui.text(this, 14, 500, 0xB3FFFFFF);
+            wk.setShadowLayer(0, 0, 0, 0);
+            wk.setText("НА НЕДЕЛЮ");
+            wk.setLetterSpacing(0.15f);
+            LinearLayout.LayoutParams kl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            kl.topMargin = dp(6);
+            p.body.addView(wk, kl);
+            LinearLayout days = p.strip();
+            Calendar cal = Calendar.getInstance();
+            int today = cal.get(Calendar.DAY_OF_YEAR);
+            SimpleDateFormat df = new SimpleDateFormat("EE, d", new Locale("ru"));
+            int d = 0;
+            for (Weather.Day day : w.days) {
+                if (d++ >= 7) break;
+                cal.setTimeInMillis(day.date);
+                int doy = cal.get(Calendar.DAY_OF_YEAR);
+                String name = doy == today ? "Сегодня" : doy == today + 1 ? "Завтра" : df.format(day.date);
+                name = Character.toUpperCase(name.charAt(0)) + name.substring(1);
+                LinearLayout c = smallCard(name, Weather.emoji(day.code < 0 ? 3 : day.code, false),
+                        Weather.temp(day.max) + " / " + Weather.temp(day.min),
+                        Math.round(day.wind) + " м/с" + (day.precip >= 0.5 ? " · " + Math.round(day.precip) + " мм" : ""));
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(104), dp(124));
+                if (days.getChildCount() > 0) lp.leftMargin = dp(8);
+                days.addView(c, lp);
+            }
+        }
+        showPanel(p, first);
+    }
+
+    private LinearLayout smallCard(String top, String emoji, String main, String bottom) {
+        LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.VERTICAL);
+        c.setGravity(Gravity.CENTER_HORIZONTAL);
+        c.setPadding(dp(4), dp(10), dp(4), dp(8));
+        Panel.cardStyle(c, 18);
+        String[] texts = {top, emoji, main, bottom};
+        float[] sizes = {13, 24, 16, 11};
+        int[] weights = {500, 400, 500, 400};
+        int[] colors = {0xCCFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xA6FFFFFF};
+        for (int i = 0; i < 4; i++) {
+            TextView t = Ui.text(this, sizes[i], weights[i], colors[i]);
+            t.setShadowLayer(0, 0, 0, 0);
+            t.setText(texts[i]);
+            t.setSingleLine(true);
+            t.setGravity(Gravity.CENTER);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            if (i > 0) lp.topMargin = dp(i == 1 ? 6 : 6);
+            c.addView(t, lp);
+        }
+        return c;
+    }
+
+    // ---------- сеть ----------
+
+    private void watchNetwork() {
+        try {
+            ConnectivityManager cm = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+            netCb = new ConnectivityManager.NetworkCallback() {
+                @Override public void onAvailable(Network n) { runOnUiThread(HomeActivity.this::updateNet); }
+                @Override public void onLost(Network n) { runOnUiThread(HomeActivity.this::updateNet); }
+                @Override public void onCapabilitiesChanged(Network n, NetworkCapabilities c) { runOnUiThread(HomeActivity.this::updateNet); }
+            };
+            cm.registerDefaultNetworkCallback(netCb);
+        } catch (Exception e) {
+            Net.log("net callback", e);
+        }
+    }
+
+    private void updateNet() {
+        String label = "Нет сети";
+        int kind = Icon.NO_NET;
+        try {
+            ConnectivityManager cm = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+            Network n = cm.getActiveNetwork();
+            NetworkCapabilities c = n == null ? null : cm.getNetworkCapabilities(n);
+            if (c != null && c.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) {
+                label = "Ethernet";
+                kind = Icon.ETHERNET;
+            } else if (c != null && c.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
+                label = "Wi‑Fi";
+                kind = Icon.WIFI;
+                WifiManager wm = (WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE);
+                WifiInfo wi = wm == null ? null : wm.getConnectionInfo();
+                String ssid = wi == null ? null : wi.getSSID();
+                if (ssid != null && !ssid.contains("unknown ssid") && ssid.length() > 2) {
+                    label = ssid.replaceAll("^\"|\"$", "");
+                }
+            }
+        } catch (Exception e) {
+            Net.log("net state", e);
+        }
+        if (netLabel != null) {
+            netLabel.setText(label.length() > 18 ? label.substring(0, 17) + "…" : label);
+            Icon fresh = new Icon(kind, netLabel.getCurrentTextColor());
+            ImageView iv = (ImageView) ((ViewGroup) netLabel.getParent()).getChildAt(0);
+            netIcon = fresh;
+            iv.setImageDrawable(fresh);
+            View chip = (View) netLabel.getParent();
+            chip.setOnFocusChangeListener((v, has) -> {
+                Ui.pill(v, has);
+                netIcon.setColor(has ? 0xFF111111 : 0xFFFFFFFF);
+                netLabel.setTextColor(has ? 0xFF111111 : 0xFFFFFFFF);
+                Ui.focusScale(v, has, 1.06f);
+                if (has) glow.hide();
+            });
+        }
     }
 }
