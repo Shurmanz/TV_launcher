@@ -17,7 +17,7 @@ import java.util.Locale;
  */
 final class HaCorner extends LinearLayout {
     private static final String[][] ROOMS = {
-            {"bed", "Спальня"}, {"liv", "Гостиная"}, {"kit", "Кухня"}, {"bal", "Балкон"},
+            {"bed", "Спальня"}, {"liv", "Комната"}, {"kit", "Кухня"}, {"bal", "Балкон"},
     };
     private static final long STALE_MS = 30 * 60_000L;
 
