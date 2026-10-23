@@ -32,7 +32,7 @@ final class ClockView extends LinearLayout implements WallpaperView.Listener {
         super(ctx);
         setOrientation(VERTICAL);
         weather = weatherView;
-        greeting = Ui.text(ctx, timeSp * 0.2f, 400, 0x99FFFFFF);
+        greeting = Ui.text(ctx, timeSp * 0.2f, 400, 0xD9FFFFFF);
         greeting.setLetterSpacing(0.28f);
         greeting.setSingleLine(true);
         addView(greeting, new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT));
@@ -48,7 +48,7 @@ final class ClockView extends LinearLayout implements WallpaperView.Listener {
         LayoutParams bl = new LayoutParams(Ui.dp(ctx, 1), Math.round(timeSp * 0.5f * getResources().getDisplayMetrics().density));
         bl.setMargins(Ui.dp(ctx, 22), Ui.dp(ctx, 6), Ui.dp(ctx, 22), 0);
         row.addView(bar, bl);
-        date = Ui.text(ctx, timeSp * 0.24f, 400, 0x99FFFFFF);
+        date = Ui.text(ctx, timeSp * 0.24f, 500, 0xE6FFFFFF);
         date.setLetterSpacing(0.18f);
         date.setSingleLine(true);
         LayoutParams dl = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
