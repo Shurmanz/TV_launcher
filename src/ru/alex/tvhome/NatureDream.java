@@ -29,9 +29,9 @@ public class NatureDream extends DreamService {
         sg.setGradientType(GradientDrawable.RADIAL_GRADIENT);
         sg.setColors(new int[]{0xB3000000, 0x59000000, 0x00000000});
         sg.setGradientCenter(0f, 1f);
-        sg.setGradientRadius(520 * d);
+        sg.setGradientRadius(540 * d);
         scrim.setBackground(sg);
-        root.addView(scrim, new FrameLayout.LayoutParams(Math.round(640 * d), Math.round(420 * d), Gravity.BOTTOM | Gravity.START));
+        root.addView(scrim, new FrameLayout.LayoutParams(Math.round(560 * d), Math.round(540 * d), Gravity.BOTTOM | Gravity.START));
 
         View dim = new View(this);
         dim.setBackgroundColor(0xFF000000);
