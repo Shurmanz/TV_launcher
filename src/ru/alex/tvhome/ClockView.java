@@ -36,6 +36,7 @@ final class ClockView extends LinearLayout implements WallpaperView.Listener {
         greeting.setLetterSpacing(0.28f);
         greeting.setSingleLine(true);
         addView(greeting, new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT));
+        greeting.setVisibility(GONE); // приветствие убрано по просьбе — оставлены часы, дата и погода
 
         LinearLayout row = new LinearLayout(ctx);
         row.setOrientation(HORIZONTAL);
