@@ -51,6 +51,7 @@ public class HomeActivity extends Activity {
     private TextView weatherBtn, netLabel, moveHint;
     private Icon settingsIcon;
     private View inputsChip;
+    private HaCorner haCorner;
     private ScrollView scroll;
     private LinearLayout grid;
     private FrameLayout panel;
@@ -89,6 +90,8 @@ public class HomeActivity extends Activity {
         reloadApps();
         wall.start();
         updateNet();
+        HaReceiver.listener = () -> { if (haCorner != null) haCorner.refresh(); };
+        haCorner.refresh();
         Updater.check(this, false, (avail, name) -> settingsIcon.setDot(avail));
     }
 
@@ -97,6 +100,7 @@ public class HomeActivity extends Activity {
         super.onPause();
         resumed = false;
         wall.stop();
+        HaReceiver.listener = null;
         if (moving != null) endMove();
     }
 
@@ -192,6 +196,14 @@ public class HomeActivity extends Activity {
                 ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP | Gravity.START);
         ll.setMargins(dp(64), dp(38), 0, 0);
         content.addView(left, ll);
+
+        // --- справа сверху: климат из Home Assistant
+        haCorner = new HaCorner(this);
+        FrameLayout.LayoutParams hl = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP | Gravity.END);
+        hl.setMargins(0, dp(44), dp(64), 0);
+        content.addView(haCorner, hl);
+        haCorner.refresh();
 
         // --- под погодой, сразу над плитками: Входы, сеть, Настройки — круглые значки
         LinearLayout chips = new LinearLayout(this);

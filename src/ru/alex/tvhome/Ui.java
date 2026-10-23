@@ -29,10 +29,10 @@ final class Ui {
         return t;
     }
 
-    /** Плотная мягкая тень: белый текст читается и на светлом фото. */
+    /** Тень под каждой буквой: короткая, со смещением вниз — текст читается на светлом фото без «ореола». */
     static void strongShadow(TextView t) {
         Context c = t.getContext();
-        t.setShadowLayer(dp(c, 12), 0, dp(c, 2), 0xF2000000);
+        t.setShadowLayer(dp(c, 3), 0, dp(c, 1.5f), 0xF2000000);
     }
 
     static GradientDrawable round(int color, float radius, int strokeW, int strokeColor) {
