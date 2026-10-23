@@ -63,6 +63,9 @@ final class Apps {
         map.remove(ctx.getPackageName());
         // телефонные «Настройки» дублируют наш ярлык TV-настроек
         map.remove("com.android.settings");
+        map.remove("com.tcl.tcl_bt_rcu_service"); // служебный тест пульта
+        App tcl = map.get("com.tcl.settings");    // свои настройки TCL (картинка, звук) — отличаем по имени
+        if (tcl != null) map.put(tcl.pkg, new App(tcl.pkg, "Настройки TCL", tcl.launch, tcl.banner, tcl.icon));
         boolean sysTv = map.containsKey("com.android.tv.settings");
         List<App> list = new ArrayList<>(map.values());
         Collator col = Collator.getInstance(new Locale("ru"));
