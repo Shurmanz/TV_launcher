@@ -183,7 +183,7 @@ public class HomeActivity extends Activity {
         clock = new ClockView(this, 58, weatherBtn);
         clock.setNightListener(this::applyNight);
         wall.addListener(clock);
-        left.addView(clock);
+        left.addView(clock, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         LinearLayout.LayoutParams wl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         wl.setMargins(-dp(14), dp(10), 0, 0);
         left.addView(weatherBtn, wl);
@@ -688,9 +688,11 @@ public class HomeActivity extends Activity {
     private void openInputs() {
         Panel p = new Panel(this, "Входы", "ОК — переключить");
         List<TvInputs.In> list = TvInputs.list(this);
+        boolean reliable = TvInputs.stateReliable(list);
         int conn = 0;
         for (TvInputs.In i : list) if (i.connected && i.type != android.media.tv.TvInputInfo.TYPE_TUNER) conn++;
-        p.count.setText(plural(conn, "подключён", "подключено", "подключено"));
+        p.count.setText(reliable ? plural(conn, "подключён", "подключено", "подключено")
+                : plural(list.size(), "вход", "входа", "входов"));
         View first = null, firstConnected = null;
         if (list.isEmpty()) {
             TextView t = Ui.text(this, 16, 400, 0xB3FFFFFF);
@@ -712,22 +714,25 @@ public class HomeActivity extends Activity {
                 card.setPadding(dp(12), dp(14), dp(12), dp(14));
                 Panel.cardStyle(card, 22);
                 ImageView ic = new ImageView(this);
+                boolean on = in.connected || !reliable;
                 ic.setImageDrawable(new Icon(in.type == android.media.tv.TvInputInfo.TYPE_TUNER ? Icon.ETHERNET : Icon.INPUT,
-                        in.connected ? 0xFFFFFFFF : 0x80FFFFFF));
+                        on ? 0xFFFFFFFF : 0x80FFFFFF));
                 card.addView(ic, new LinearLayout.LayoutParams(dp(34), dp(34)));
-                TextView name = Ui.text(this, 17, 500, in.connected ? 0xFFFFFFFF : 0x99FFFFFF);
+                TextView name = Ui.text(this, 17, 500, on ? 0xFFFFFFFF : 0x99FFFFFF);
                 name.setShadowLayer(0, 0, 0, 0);
                 name.setText(in.label);
                 name.setGravity(Gravity.CENTER);
                 LinearLayout.LayoutParams nl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
                 nl.topMargin = dp(10);
                 card.addView(name, nl);
-                TextView sub = Ui.text(this, 12, 400, in.connected ? 0xFF7CE38B : 0x80FFFFFF);
+                TextView sub = Ui.text(this, 12, 400, reliable && in.connected ? 0xFF7CE38B : 0x99FFFFFF);
                 sub.setShadowLayer(0, 0, 0, 0);
                 sub.setSingleLine(true);
                 sub.setEllipsize(TextUtils.TruncateAt.END);
                 sub.setText(in.type == android.media.tv.TvInputInfo.TYPE_TUNER ? "Эфир и кабель"
-                        : in.device != null ? in.device : in.connected ? "Подключено" : "Не подключено");
+                        : in.device != null ? in.device
+                        : reliable ? (in.connected ? "Подключено" : "Не подключено")
+                        : in.port != null ? in.port : in.type == android.media.tv.TvInputInfo.TYPE_HDMI ? "HDMI" : "Аналоговый");
                 LinearLayout.LayoutParams sl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
                 sl.topMargin = dp(4);
                 card.addView(sub, sl);
@@ -739,7 +744,7 @@ public class HomeActivity extends Activity {
                 if (strip.getChildCount() > 0) lp.leftMargin = dp(14);
                 strip.addView(card, lp);
                 if (first == null) first = card;
-                if (in.connected && firstConnected == null) firstConnected = card;
+                if (reliable && in.connected && firstConnected == null) firstConnected = card;
             }
         }
         showPanel(p, firstConnected != null ? firstConnected : first);

@@ -64,7 +64,8 @@ final class Apps {
         List<App> list = new ArrayList<>(map.values());
         Collator col = Collator.getInstance(new Locale("ru"));
         list.sort((a, b) -> col.compare(a.label, b.label));
-        list.add(0, settingsApp());
+        // свой ярлык «Настройки» — только если системного приложения настроек нет (обычно оно есть)
+        if (!map.containsKey("com.android.tv.settings")) list.add(0, settingsApp());
         return list;
     }
 

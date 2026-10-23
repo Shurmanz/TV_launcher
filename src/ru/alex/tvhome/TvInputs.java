@@ -16,7 +16,7 @@ import java.util.Map;
 /** Входы телевизора: HDMI (с состоянием подключения и именем CEC-устройства), AV, эфирное ТВ. */
 final class TvInputs {
     static final class In {
-        String id, label, device;
+        String id, label, device, port; // port — заводское имя («HDMI 1»), если вход переименован
         int type;
         boolean connected;
     }
@@ -25,6 +25,12 @@ final class TvInputs {
     static final ComponentName TCL_TV = new ComponentName("com.tcl.tv", "com.tcl.tv.TVActivity");
 
     private TvInputs() { }
+
+    /** TCL сообщает «подключено» для всех входов — тогда состоянию не верим. */
+    static boolean stateReliable(List<In> l) {
+        for (In i : l) if (!i.connected) return true;
+        return false;
+    }
 
     static List<In> list(Context ctx) {
         List<In> res = new ArrayList<>();
@@ -56,6 +62,8 @@ final class TvInputs {
             CharSequence custom = i.loadCustomLabel(ctx);
             CharSequence lab = custom != null && custom.length() > 0 ? custom : i.loadLabel(ctx);
             in.label = lab == null ? "Вход" : lab.toString();
+            CharSequence def = i.loadLabel(ctx);
+            if (custom != null && custom.length() > 0 && def != null && !def.toString().equals(in.label)) in.port = def.toString();
             if (t == TvInputInfo.TYPE_TUNER) in.label = "ТВ";
             int st;
             try { st = tm.getInputState(in.id); } catch (Exception e) { st = TvInputManager.INPUT_STATE_CONNECTED; }
@@ -63,7 +71,7 @@ final class TvInputs {
             in.device = childName.get(in.id);
             bucket.add(in);
         }
-        hdmi.sort((a, b) -> a.label.compareToIgnoreCase(b.label));
+        hdmi.sort((a, b) -> a.id.compareTo(b.id)); // id аппаратных входов идут по порядку портов
         res.addAll(hdmi);
         res.addAll(av);
         res.addAll(tv);
