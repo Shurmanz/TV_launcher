@@ -66,16 +66,16 @@ public class SetupActivity extends Activity {
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
         int side = Ui.dp(this, 96);
-        col.setPadding(side, Ui.dp(this, 40), side, Ui.dp(this, 24));
+        col.setPadding(side, Ui.dp(this, 30), side, Ui.dp(this, 20));
 
-        TextView title = Ui.text(this, 30, 500, 0xFFFFFFFF);
+        TextView title = Ui.text(this, 26, 500, 0xFFFFFFFF);
         title.setText("Настройка Slauncher");
         col.addView(title);
         TextView sub = Ui.text(this, 15, 400, 0xB3FFFFFF);
         sub.setText("Включите то, что нужно. Любой пункт можно пропустить и вернуться позже: Настройки → Настройки Slauncher.");
         LinearLayout.LayoutParams sl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         sl.topMargin = Ui.dp(this, 8);
-        sl.bottomMargin = Ui.dp(this, 18);
+        sl.bottomMargin = Ui.dp(this, 12);
         col.addView(sub, sl);
 
         ScrollView sv = new ScrollView(this);
@@ -96,7 +96,7 @@ public class SetupActivity extends Activity {
         });
         bottom.addView(doneBtn);
         LinearLayout.LayoutParams bl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        bl.topMargin = Ui.dp(this, 14);
+        bl.topMargin = Ui.dp(this, 8);
         col.addView(bottom, bl);
 
         root.addView(col, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
@@ -161,7 +161,7 @@ public class SetupActivity extends Activity {
         LinearLayout r = new LinearLayout(this);
         r.setOrientation(LinearLayout.HORIZONTAL);
         r.setGravity(Gravity.CENTER_VERTICAL);
-        r.setPadding(Ui.dp(this, 18), Ui.dp(this, 14), Ui.dp(this, 18), Ui.dp(this, 14));
+        r.setPadding(Ui.dp(this, 16), Ui.dp(this, 9), Ui.dp(this, 14), Ui.dp(this, 9));
         r.setBackground(Ui.round(0x14FFFFFF, Ui.dp(this, 18), Ui.dp(this, 1), 0x1FFFFFFF));
 
         TextView mark = Ui.text(this, 20, 600, s.ok ? 0xFF30D158 : (s.important ? 0xFFFF9F0A : 0x80FFFFFF));
@@ -172,23 +172,23 @@ public class SetupActivity extends Activity {
 
         LinearLayout txt = new LinearLayout(this);
         txt.setOrientation(LinearLayout.VERTICAL);
-        TextView t = Ui.text(this, 17, 500, 0xFFFFFFFF);
+        TextView t = Ui.text(this, 16, 500, s.ok ? 0xCCFFFFFF : 0xFFFFFFFF);
         t.setShadowLayer(0, 0, 0, 0);
         t.setText(s.title + (s.ok ? "" : s.important ? "  — не включено" : "  — не включено (по желанию)"));
         txt.addView(t);
-        TextView d = Ui.text(this, 13, 400, 0x99FFFFFF);
+        TextView d = Ui.text(this, 12, 400, 0x99FFFFFF);
         d.setShadowLayer(0, 0, 0, 0);
-        d.setText(s.ok ? "Готово" : s.desc);
+        d.setText(s.desc);
         LinearLayout.LayoutParams dl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        dl.topMargin = Ui.dp(this, 3);
-        txt.addView(d, dl);
+        dl.topMargin = Ui.dp(this, 2);
+        if (!s.ok) txt.addView(d, dl); // включённые пункты — одной строкой
         if (!s.ok && s.adb != null) {
-            TextView a = Ui.text(this, 12, 400, 0x66FFFFFF);
+            TextView a = Ui.text(this, 11, 400, 0x66FFFFFF);
             a.setShadowLayer(0, 0, 0, 0);
             a.setTypeface(android.graphics.Typeface.MONOSPACE);
             a.setText((s.open == null ? "" : "Если экрана нет: ") + s.adb);
             LinearLayout.LayoutParams al = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            al.topMargin = Ui.dp(this, 4);
+            al.topMargin = Ui.dp(this, 2);
             txt.addView(a, al);
         }
         r.addView(txt, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
@@ -202,7 +202,7 @@ public class SetupActivity extends Activity {
             if (firstButton == null) firstButton = btn;
         }
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.bottomMargin = Ui.dp(this, 10);
+        lp.bottomMargin = Ui.dp(this, 7);
         r.setLayoutParams(lp);
         return r;
     }
