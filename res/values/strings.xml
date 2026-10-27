@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Дом</string>
-    <string name="service_name">Дом: кнопка «Домой»</string>
-    <string name="dream_name">Дом: природа</string>
-    <string name="service_desc">Открывает лаунчер «Дом» вместо стандартного экрана Google TV после нажатия кнопки «Домой». Нажатия кнопок и содержимое экранов не читает и никуда не отправляет.</string>
+    <string name="app_name">Slauncher</string>
+    <string name="service_name">Slauncher: кнопка «Домой»</string>
+    <string name="dream_name">Slauncher: природа</string>
+    <string name="service_desc">Открывает лаунчер Slauncher вместо стандартного экрана Google TV после нажатия кнопки «Домой». Нажатия кнопок и содержимое экранов не читает и никуда не отправляет.</string>
 </resources>

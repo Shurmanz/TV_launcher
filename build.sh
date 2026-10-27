@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Сборка лаунчера «Дом» без Gradle: javac → d8 → aapt2 → zipalign → apksig.
+# Сборка лаунчера Slauncher без Gradle: javac → d8 → aapt2 → zipalign → apksig.
 # Инструменты берутся с maven.google.com (aapt2, r8/d8, apksig) и android.jar (API 30).
 set -euo pipefail
 cd "$(dirname "$0")"
