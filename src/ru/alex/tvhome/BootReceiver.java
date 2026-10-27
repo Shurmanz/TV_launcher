@@ -15,6 +15,8 @@ import android.provider.Settings;
 public class BootReceiver extends BroadcastReceiver {
     @Override
     public void onReceive(Context ctx, Intent intent) {
+        if (Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())) // дошло — значит, автозапуск разрешён
+            ctx.getSharedPreferences(SetupActivity.PREF, Context.MODE_PRIVATE).edit().putBoolean("tcl_autostart", true).apply();
         ensureService(ctx);
     }
 

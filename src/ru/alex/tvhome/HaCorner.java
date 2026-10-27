@@ -35,15 +35,15 @@ final class HaCorner extends LinearLayout {
         if (data == null) { setVisibility(GONE); return; }
         setVisibility(VISIBLE);
         setAlpha(System.currentTimeMillis() - at > STALE_MS ? 0.45f : 1f); // давно не обновлялось — приглушаем
-        java.util.Map<String, String[]> m = new java.util.HashMap<>();
+        // ключи bed/liv/kit/bal — от старой автоматизации HA; иначе ключ — уже название комнаты
+        java.util.Map<String, String> labels = new java.util.HashMap<>();
+        for (String[] r : ROOMS) labels.put(r[0], r[1]);
         for (String part : data.split("/")) {
             int i = part.indexOf(':');
-            if (i > 0) m.put(part.substring(0, i), part.substring(i + 1).split(","));
-        }
-        for (String[] r : ROOMS) {
-            String[] v = m.get(r[0]);
-            if (v == null) continue;
-            addView(row(r[1], v));
+            if (i <= 0) continue;
+            String key = part.substring(0, i);
+            String label = labels.containsKey(key) ? labels.get(key) : key;
+            addView(row(label, part.substring(i + 1).split(",")));
         }
     }
 
