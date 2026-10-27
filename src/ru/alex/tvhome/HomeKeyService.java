@@ -56,6 +56,7 @@ public class HomeKeyService extends AccessibilityService {
     @Override
     protected void onServiceConnected() {
         super.onServiceConnected();
+        HaClient.ensure(this); // служба живёт всегда — держит связь с HA и карточки событий поверх фильма
         if (SystemClock.elapsedRealtime() < 10 * 60_000L) {
             new android.os.Handler(android.os.Looper.getMainLooper())
                     .postDelayed(() -> openHome(SystemClock.elapsedRealtime()), 1500);

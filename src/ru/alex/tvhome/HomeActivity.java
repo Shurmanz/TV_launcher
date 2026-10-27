@@ -81,6 +81,7 @@ public class HomeActivity extends Activity {
         f.addDataScheme("package");
         registerReceiver(pkgReceiver, f);
         watchNetwork();
+        HaClient.ensure(this);
     }
 
     @Override
@@ -93,7 +94,15 @@ public class HomeActivity extends Activity {
         HaReceiver.listener = () -> { if (haCorner != null) haCorner.refresh(); };
         haCorner.refresh();
         Updater.check(this, false, (avail, name) -> settingsIcon.setDot(avail));
+        HaClient.ensure(this);
+        if (!setupOffered && !getSharedPreferences(SetupActivity.PREF, MODE_PRIVATE).getBoolean("seen", false)
+                && SetupActivity.needed(this)) {
+            setupOffered = true; // мастер — один раз за запуск, пока не нажали «Готово»
+            startActivity(new Intent(this, SetupActivity.class));
+        }
     }
+
+    private static boolean setupOffered;
 
     @Override
     protected void onPause() {
@@ -215,7 +224,7 @@ public class HomeActivity extends Activity {
         netLabel = (TextView) ((ViewGroup) net).getChildAt(1);
         chips.addView(net);
         settingsIcon = new Icon(Icon.GEAR, 0xFFFFFFFF);
-        chips.addView(chip(settingsIcon, "Настройки", v -> openSettings(Settings.ACTION_SETTINGS),
+        chips.addView(chip(settingsIcon, "Настройки", v -> openGearMenu(),
                 v -> { openLibrary(null); return true; }));
         LinearLayout.LayoutParams chl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         chl.topMargin = dp(12);
@@ -461,6 +470,112 @@ public class HomeActivity extends Activity {
         }
     }
 
+    // ---------- шестерёнка: настройки ТВ / Slauncher ----------
+
+    private void openGearMenu() {
+        Panel p = new Panel(this, "Настройки", null);
+        LinearLayout row = new LinearLayout(this);
+        View first = addAction(row, "Настройки телевизора", () -> { closePanel(); openSettings(Settings.ACTION_SETTINGS); });
+        addAction(row, "Настройки Slauncher", this::openAppSettings);
+        p.body.addView(row);
+        showPanel(p, first);
+    }
+
+    private TextView infoLine(String text) {
+        TextView t = Ui.text(this, 16, 400, 0xE6FFFFFF);
+        t.setShadowLayer(0, 0, 0, 0);
+        t.setText(text);
+        return t;
+    }
+
+    private void section(Panel p, String head, String text, LinearLayout actions) {
+        TextView h = Ui.text(this, 13, 600, 0x80FFFFFF);
+        h.setShadowLayer(0, 0, 0, 0);
+        h.setLetterSpacing(0.12f);
+        h.setText(head.toUpperCase(new Locale("ru")));
+        LinearLayout.LayoutParams hl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        hl.topMargin = p.body.getChildCount() == 0 ? 0 : dp(18);
+        p.body.addView(h, hl);
+        TextView t = infoLine(text);
+        LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        tl.topMargin = dp(6);
+        tl.bottomMargin = dp(10);
+        p.body.addView(t, tl);
+        if (actions != null) p.body.addView(actions);
+    }
+
+    private void openAppSettings() {
+        Panel p = new Panel(this, "Настройки Slauncher", null);
+        p.count.setText("версия " + Updater.myName(this));
+
+        LinearLayout upd = new LinearLayout(this);
+        boolean avail = Updater.available(this);
+        View first = addAction(upd, avail ? "Обновить до " + Updater.remoteName(this) : "Проверить обновление", () -> runUpdate(p));
+        section(p, "Обновление", avail ? "Доступна новая версия " + Updater.remoteName(this) + "."
+                : "Установлена последняя проверенная версия.", upd);
+
+        LinearLayout ha = new LinearLayout(this);
+        addAction(ha, "Настроить с телефона", this::openHaSetup);
+        if (!HaConfig.url(this).isEmpty()) {
+            boolean on = HaConfig.enabled(this);
+            addAction(ha, on ? "Выключить" : "Включить", () -> {
+                HaConfig.setEnabled(this, !on);
+                HaClient.restart(this);
+                if (on) { HaReceiver.prefs(this).edit().remove("data").apply(); haCorner.refresh(); }
+                openAppSettings();
+            });
+        }
+        String haState = HaConfig.url(this).isEmpty() ? "Не настроен. Климат по комнатам и карточки событий — по желанию."
+                : (HaConfig.enabled(this) ? "Связь: " + HaClient.status + "  ·  комнат: " + HaConfig.rooms(this).length()
+                + "  ·  событий: " + HaConfig.events(this).length() : "Выключен.");
+        section(p, "Home Assistant", haState, ha);
+
+        LinearLayout perm = new LinearLayout(this);
+        addAction(perm, "Проверка разрешений", () -> { closePanel(); startActivity(new Intent(this, SetupActivity.class)); });
+        section(p, "Разрешения", "Кнопка «Домой», уведомления поверх фильма, заставка, обновления.", perm);
+        showPanel(p, first);
+    }
+
+    private void runUpdate(Panel p) {
+        Updater.check(this, true, (avail, name) -> {
+            if (!avail) { Toast.makeText(this, "Установлена последняя версия " + Updater.myName(this), Toast.LENGTH_LONG).show(); return; }
+            if (!Updater.canInstall(this)) {
+                Toast.makeText(this, "Разрешите Slauncher устанавливать приложения", Toast.LENGTH_LONG).show();
+                try {
+                    startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, android.net.Uri.parse("package:" + getPackageName()))
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                } catch (Exception e) { startActivity(new Intent(this, SetupActivity.class)); }
+                return;
+            }
+            Updater.downloadAndInstall(this, (text, done) -> Toast.makeText(this, text, Toast.LENGTH_SHORT).show());
+        });
+    }
+
+    private void openHaSetup() {
+        Panel p = new Panel(this, "Home Assistant", "Откройте на телефоне в той же Wi‑Fi сети:");
+        TextView addr = Ui.text(this, 34, 500, 0xFFFFFFFF);
+        addr.setShadowLayer(0, 0, 0, 0);
+        p.body.addView(addr);
+        TextView how = Ui.text(this, 15, 400, 0xB3FFFFFF);
+        how.setShadowLayer(0, 0, 0, 0);
+        how.setText("1. Введите адрес Home Assistant и долгосрочный токен (HA → профиль → Безопасность).\n"
+                + "2. Выберите комнаты и события. Страница работает, пока открыт этот экран.");
+        LinearLayout.LayoutParams hl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        hl.topMargin = dp(14);
+        hl.bottomMargin = dp(16);
+        p.body.addView(how, hl);
+        LinearLayout row = new LinearLayout(this);
+        View close = addAction(row, "Закрыть", this::closePanel);
+        p.body.addView(row);
+        showPanel(p, close); // закрывает прошлую панель — сервер запускаем уже после
+        String pin = HaSetupServer.start(this, () -> {
+            Toast.makeText(this, "Home Assistant настроен ✓", Toast.LENGTH_LONG).show();
+            closePanel();
+            haCorner.refresh();
+        });
+        addr.setText(pin == null ? "Не удалось открыть страницу настройки" : "http://" + HaSetupServer.ip() + ":" + HaSetupServer.PORT + "/" + pin);
+    }
+
     private void openSettings(String action) {
         try {
             startActivity(new Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
@@ -572,6 +687,7 @@ public class HomeActivity extends Activity {
     }
 
     private void closePanel() {
+        HaSetupServer.stop();
         if (panel == null) return;
         final View o = panel;
         panel = null;
