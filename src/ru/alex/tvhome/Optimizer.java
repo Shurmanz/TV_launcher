@@ -111,6 +111,16 @@ final class Optimizer {
         Adb.prefs(c).edit().putBoolean("dirty", true).apply();
     }
 
+    /**
+     * Сохранённая сеть Wi‑Fi добавлена мастером первичной настройки Google (setupwraith)?
+     * Тогда при его отключении Android удалит и сеть — пароль придётся вводить заново (так было на TCL 28.10).
+     */
+    static boolean wifiFromSetup(Context c) throws Exception {
+        String r = Adb.sh(c, "dumpsys wifi | sed -n '/Configured networks Begin/,/Configured networks End/p' | grep -c 'cname="
+                + GTV_SETUP + "'");
+        try { return Integer.parseInt(r.trim()) > 0; } catch (Exception e) { return false; }
+    }
+
     static void googleTvOn(Context c) throws Exception {
         List<String> cmds = new ArrayList<>();
         cmds.add("pm enable " + GTV);
