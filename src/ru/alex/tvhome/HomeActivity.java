@@ -775,17 +775,11 @@ public class HomeActivity extends Activity {
 
         LinearLayout gtv = new LinearLayout(this);
         String gtvText;
-        if (Optimizer.hasGoogleTv(optState)) {
-            boolean gOff = Optimizer.googleTvOff(optState);
-            addAction(gtv, gOff ? "Вернуть Google TV" : "Отключить Google TV", () -> {
-                if (gOff) bg(p, "возвращаю…", () -> { Optimizer.googleTvOn(this); return Optimizer.read(this); },
-                        s -> { optState = s; buildOptimizer(null); Toast.makeText(this, "Google TV включён обратно", Toast.LENGTH_LONG).show(); });
-                else withBackup(() -> bg(p, "отключаю…", () -> { Optimizer.googleTvOff(this); return Optimizer.read(this); },
-                        s -> { optState = s; buildOptimizer(null); Toast.makeText(this, "Google TV отключён, дом — Slauncher", Toast.LENGTH_LONG).show(); }),
-                        this::buildOptimizerAgain);
-            });
-            gtvText = gOff ? "Лента Google TV с рекламой отключена, домашний экран — Slauncher."
-                    : "Лента Google TV с рекламой работает в фоне. Можно отключить — вернуть одной кнопкой.";
+        if (Optimizer.hasGoogleTv(optState) && Optimizer.googleTvOff(optState)) {
+            // отключать ленту Google TV пока нельзя: на TCL это сбросило Wi‑Fi (28.10). Оставлен только возврат.
+            addAction(gtv, "Вернуть Google TV", () -> bg(p, "возвращаю…", () -> { Optimizer.googleTvOn(this); return Optimizer.read(this); },
+                    s -> { optState = s; buildOptimizer(null); Toast.makeText(this, "Google TV включён обратно", Toast.LENGTH_LONG).show(); }));
+            gtvText = "Лента Google TV отключена. Если что-то работает не так — верните её.";
         } else gtvText = "Персонализация рекламы и рекламный идентификатор — в настройках Google.";
         addAction(gtv, "Реклама Google", () -> {
             try { startActivity(new Intent("com.google.android.gms.settings.ADS_PRIVACY").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); }
