@@ -48,7 +48,7 @@ public class HomeActivity extends Activity {
     private View nightDim;
     private GlowView glow;
     private ClockView clock;
-    private TextView weatherBtn, netLabel, moveHint;
+    private TextView weatherBtn, netLabel, moveHint, tip;
     private Icon settingsIcon;
     private View inputsChip;
     private HaCorner haCorner;
@@ -95,6 +95,7 @@ public class HomeActivity extends Activity {
         haCorner.refresh();
         Updater.check(this, false, (avail, name) -> settingsIcon.setDot(avail));
         HaClient.ensure(this);
+        updateTip();
         if (!setupOffered && !getSharedPreferences(SetupActivity.PREF, MODE_PRIVATE).getBoolean("seen", false)
                 && SetupActivity.needed(this)) {
             setupOffered = true; // мастер — один раз за запуск, пока не нажали «Готово»
@@ -266,7 +267,42 @@ public class HomeActivity extends Activity {
         ml.bottomMargin = dp(28);
         root.addView(moveHint, ml);
 
+        // подсказка внизу: как добавить приложения / напоминание, что «Домой» не ведёт в Slauncher
+        tip = Ui.text(this, 15, 500, 0xFFFFFFFF);
+        tip.setShadowLayer(0, 0, 0, 0);
+        tip.setPadding(dp(20), dp(10), dp(20), dp(10));
+        tip.setVisibility(View.GONE);
+        FrameLayout.LayoutParams tl = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        tl.bottomMargin = dp(28);
+        content.addView(tip, tl);
+
         setContentView(root);
+    }
+
+    /** Внизу экрана: напоминание про кнопку «Домой» (важнее) или подсказка, как добавить приложения. */
+    private void updateTip() {
+        if (tip == null) return;
+        if (!SetupActivity.homeServiceOn(this)) {
+            tip.setText("Кнопка «Домой» на пульте сейчас ведёт не в Slauncher  ·  ОК — включить");
+            tip.setFocusable(true);
+            tip.setOnFocusChangeListener((v, has) -> {
+                v.setBackground(Ui.round(has ? 0xFFFF9F0A : 0xCC1C1C1E, dp(100), dp(has ? 0 : 2), 0xFFFF9F0A));
+                tip.setTextColor(has ? 0xFF111111 : 0xFFFFFFFF);
+            });
+            tip.setBackground(Ui.round(0xCC1C1C1E, dp(100), dp(2), 0xFFFF9F0A));
+            tip.setTextColor(0xFFFFFFFF);
+            tip.setOnClickListener(v -> startActivity(new Intent(this, SetupActivity.class)));
+            tip.setVisibility(View.VISIBLE);
+        } else if (!getSharedPreferences("ui", MODE_PRIVATE).getBoolean("lib_used", false)) {
+            tip.setText("Добавить приложения и поменять порядок — долгое нажатие ОК на любой плитке");
+            tip.setFocusable(false);
+            tip.setOnClickListener(null);
+            tip.setOnFocusChangeListener(null);
+            tip.setBackground(Ui.round(0xB31C1C1E, dp(100), dp(1), 0x33FFFFFF));
+            tip.setTextColor(0xE6FFFFFF);
+            tip.setVisibility(View.VISIBLE);
+        } else tip.setVisibility(View.GONE);
     }
 
     private FrameLayout.LayoutParams match() {
@@ -1021,6 +1057,7 @@ public class HomeActivity extends Activity {
         closePanel();
         moving = pkg;
         moveHint.setVisibility(View.VISIBLE);
+        tip.setVisibility(View.GONE);
         View t = findTile(pkg);
         if (t != null) {
             t.requestFocus();
@@ -1033,6 +1070,7 @@ public class HomeActivity extends Activity {
         if (t != null) t.setForeground(null);
         moving = null;
         moveHint.setVisibility(View.GONE);
+        updateTip();
     }
 
     private boolean moveBy(int delta) {
@@ -1141,6 +1179,8 @@ public class HomeActivity extends Activity {
     // --- библиотека приложений (долгое нажатие ОК / кнопка меню)
 
     private void openLibrary(Apps.App ctx) {
+        getSharedPreferences("ui", MODE_PRIVATE).edit().putBoolean("lib_used", true).apply();
+        updateTip();
         Panel p = new Panel(this, "Библиотека приложений", "ОК — добавить на главный  ·  удерживать — открыть");
         List<Apps.App> rest = new ArrayList<>();
         for (Apps.App a : allApps) {

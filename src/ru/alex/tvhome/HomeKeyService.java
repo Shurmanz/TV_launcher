@@ -6,7 +6,7 @@ import android.os.SystemClock;
 import android.view.accessibility.AccessibilityEvent;
 
 /**
- * На Google TV кнопка «Домой» всегда открывает штатный лаунчер (launcherx), и отключать его нельзя:
+ * Кнопка «Домой» открывает штатный лаунчер (Google TV launcherx, Android TV Home, PatchWall у Xiaomi…),
  * в нём живут результаты голосового поиска, профили и кнопки YouTube/Netflix на пульте.
  * Поэтому служба только следит за появлением штатного главного экрана и сразу открывает вместо него Slauncher.
  *
@@ -38,13 +38,14 @@ public class HomeKeyService extends AccessibilityService {
         for (String v : VOICE) {
             if (pkg.equals(v)) { lastVoice = now; return; }
         }
-        if (!pkg.equals(STOCK)) {
+        java.util.Set<String> homes = stockHomes(now).get(pkg);
+        if (homes == null) {
             // ушли в любое другое приложение — «окно голосового поиска» закончилось
             if (!pkg.equals("android") && !pkg.startsWith("com.android.systemui")) lastVoice = 0;
             return;
         }
         if (cls.contains("LauncherDeepLink")) { lastVoice = now; return; } // переход из Ассистента
-        if (!cls.contains("HomeActivity")) return;
+        if (!homes.contains(cls) && !(pkg.equals(STOCK) && cls.contains("HomeActivity"))) return;
         if (lastVoice != 0 && now - lastVoice < VOICE_GRACE_MS) return; // показываются результаты поиска
         openHome(now);
     }
@@ -61,6 +62,33 @@ public class HomeKeyService extends AccessibilityService {
             new android.os.Handler(android.os.Looper.getMainLooper())
                     .postDelayed(() -> openHome(SystemClock.elapsedRealtime()), 1500);
         }
+    }
+
+    /** Не наши «главные экраны»: пакет → классы их домашних активити. Google TV, Android TV Home, PatchWall Xiaomi и т.д. */
+    private java.util.Map<String, java.util.Set<String>> homesCache;
+    private long homesAt;
+    private static final java.util.Set<String> NOT_HOMES = new java.util.HashSet<>(java.util.Arrays.asList(
+            "com.android.tv.settings", "com.android.settings", "com.google.android.tungsten.setupwraith"));
+
+    private java.util.Map<String, java.util.Set<String>> stockHomes(long now) {
+        if (homesCache != null && now - homesAt < 5 * 60_000L) return homesCache;
+        java.util.Map<String, java.util.Set<String>> m = new java.util.HashMap<>();
+        try {
+            Intent h = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME);
+            for (android.content.pm.ResolveInfo r : getPackageManager().queryIntentActivities(h, 0)) {
+                String p = r.activityInfo.packageName;
+                if (p.equals(getPackageName()) || NOT_HOMES.contains(p)) continue;
+                java.util.Set<String> cs = m.get(p);
+                if (cs == null) { cs = new java.util.HashSet<>(); m.put(p, cs); }
+                cs.add(r.activityInfo.name);
+                if (r.activityInfo.targetActivity != null) cs.add(r.activityInfo.targetActivity);
+            }
+        } catch (Exception ignored) { }
+        if (!m.containsKey(STOCK)) m.put(STOCK, new java.util.HashSet<>());
+        homesCache = m;
+        homesAt = now;
+        android.util.Log.i(Net.TAG, "stock homes: " + m);
+        return m;
     }
 
     private void openHome(long now) {
