@@ -169,8 +169,9 @@ final class Optimizer {
             + "d=$(dirname \"$0\")\n"
             + "for a in \"$d\"/apk/*/; do [ -d \"$a\" ] || continue; p=$(basename \"$a\");\n"
             + "  pm path \"$p\" >/dev/null 2>&1 && continue\n"
-            + "  sid=$(pm install-create -r | grep -o '[0-9][0-9]*'); for f in \"$a\"*.apk; do\n"
-            + "    pm install-write -S $(stat -c %s \"$f\") $sid $(basename \"$f\") \"$f\" >/dev/null; done; pm install-commit $sid; done\n"
+            + "  t=/data/local/tmp/slr; rm -rf $t; mkdir -p $t; cp \"$a\"*.apk $t/\n"
+            + "  sid=$(pm install-create -r | grep -o '[0-9][0-9]*'); for f in $t/*.apk; do\n"
+            + "    pm install-write -S $(stat -c %s \"$f\") $sid $(basename \"$f\") \"$f\" >/dev/null; done; pm install-commit $sid; rm -rf $t; done\n"
             + "while read st p; do case $st in\n"
             + "  enabled) cmd package install-existing \"$p\" >/dev/null 2>&1; pm enable \"$p\" >/dev/null 2>&1;;\n"
             + "  disabled) cmd package install-existing \"$p\" >/dev/null 2>&1; pm disable-user --user 0 \"$p\" >/dev/null 2>&1;;\n"
@@ -243,8 +244,10 @@ final class Optimizer {
     }
 
     static String installCmd(String apkDir) {
-        return "sid=$(pm install-create -r | grep -o '[0-9][0-9]*'); for f in " + apkDir + "/*.apk; do "
-                + "pm install-write -S $(stat -c %s $f) $sid $(basename $f) $f >/dev/null; done; pm install-commit $sid";
+        // pm не читает файлы с /sdcard — сначала копия в /data/local/tmp
+        return "t=/data/local/tmp/slr; rm -rf $t; mkdir -p $t; cp " + apkDir + "/*.apk $t/; "
+                + "sid=$(pm install-create -r | grep -o '[0-9][0-9]*'); for f in $t/*.apk; do "
+                + "pm install-write -S $(stat -c %s $f) $sid $(basename $f) $f >/dev/null; done; pm install-commit $sid; rm -rf $t";
     }
 
     static String animCmd(String v) {
