@@ -13,7 +13,8 @@ import java.util.TimeZone;
 /** Погода, прогноз и фаза суток для Череповца (met.no, запасные — open-meteo и wttr.in). */
 final class Weather {
     // Центр Череповца
-    static final double LAT = 59.127, LON = 37.909;
+    // координаты задаёт Loc (авто по IP или выбранный город); по умолчанию — Череповец
+    static volatile double LAT = 59.127, LON = 37.909;
 
     enum Phase { DAWN, DAY, DUSK, NIGHT }
     enum Sky { CLEAR, CLOUDY, FOG, RAIN, SNOW, STORM }

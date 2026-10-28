@@ -46,6 +46,7 @@ final class WallpaperView extends FrameLayout {
     WallpaperView(Context ctx, long intervalMs) {
         super(ctx);
         interval = intervalMs;
+        Loc.init(ctx);
         walls = new Wallpapers(ctx);
         setBackgroundColor(0xFF0B0F14);
         back = img();
@@ -167,6 +168,7 @@ final class WallpaperView extends FrameLayout {
             Bitmap bm = null;
             String used = null;
             try {
+                Loc.refreshAuto(getContext(), false); // авто-город: раз в сутки по IP; переехали — погода заново
                 Weather w = lastWeather;
                 if (w == null || System.currentTimeMillis() - w.fetchedAt > WEATHER_TTL) {
                     try {

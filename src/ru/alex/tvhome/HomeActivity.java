@@ -530,6 +530,20 @@ public class HomeActivity extends Activity {
                 + "  ·  событий: " + HaConfig.events(this).length() : "Выключен.");
         section(p, "Home Assistant", haState, ha);
 
+        LinearLayout city = new LinearLayout(this);
+        addAction(city, "Выбрать город", this::openCityPicker);
+        if (!Loc.auto(this)) addAction(city, "Определять автоматически", () -> {
+            Loc.setAuto(this);
+            Toast.makeText(this, "Определяю город…", Toast.LENGTH_SHORT).show();
+            new Thread(() -> {
+                Loc.refreshAuto(this, true);
+                runOnUiThread(() -> { wall.refreshWeather(); wall.next(); openAppSettings(); });
+            }).start();
+        });
+        section(p, "Город для погоды", Loc.name(this) + (!Loc.auto(this) ? " — выбран вручную"
+                : Loc.vpnSuspected(this) ? " — интернет идёт через VPN, город мог определиться неточно: лучше выбрать вручную"
+                : " — определён автоматически"), city);
+
         LinearLayout perm = new LinearLayout(this);
         addAction(perm, "Проверка разрешений", () -> { closePanel(); startActivity(new Intent(this, SetupActivity.class)); });
         section(p, "Разрешения", "Кнопка «Домой», уведомления поверх фильма, заставка, обновления.", perm);
@@ -549,6 +563,64 @@ public class HomeActivity extends Activity {
             }
             Updater.downloadAndInstall(this, (text, done) -> Toast.makeText(this, text, Toast.LENGTH_SHORT).show());
         });
+    }
+
+    /** Выбор города вручную: поле ввода (экранная клавиатура пульта) → «Найти» → список совпадений. */
+    private void openCityPicker() {
+        Panel p = new Panel(this, "Город для погоды", "Введите название и нажмите «Найти»");
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        android.widget.EditText q = new android.widget.EditText(this);
+        q.setSingleLine(true);
+        q.setHint("например, Вологда");
+        q.setTextColor(0xFFFFFFFF);
+        q.setHintTextColor(0x66FFFFFF);
+        q.setTextSize(18);
+        q.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
+        q.setPadding(dp(18), dp(10), dp(18), dp(10));
+        q.setBackground(Ui.round(0x22FFFFFF, dp(14), dp(1), 0x33FFFFFF));
+        q.setOnFocusChangeListener((v, has) -> v.setBackground(Ui.round(has ? 0x33FFFFFF : 0x22FFFFFF, dp(14), dp(has ? 2 : 1), has ? 0xE6FFFFFF : 0x33FFFFFF)));
+        row.addView(q, new LinearLayout.LayoutParams(dp(360), ViewGroup.LayoutParams.WRAP_CONTENT));
+        LinearLayout results = new LinearLayout(this);
+        Runnable find = () -> {
+            String text = q.getText().toString().trim();
+            if (text.isEmpty()) return;
+            results.removeAllViews();
+            results.addView(infoLine("Ищу…"));
+            new Thread(() -> {
+                List<Loc.City> found;
+                try { found = Loc.search(text); } catch (Exception e) { found = new ArrayList<>(); }
+                final List<Loc.City> f = found;
+                runOnUiThread(() -> {
+                    results.removeAllViews();
+                    if (f.isEmpty()) { results.addView(infoLine("Ничего не нашлось")); return; }
+                    View first = null;
+                    for (Loc.City c : f) {
+                        View b = addAction(results, c.name + (c.region.isEmpty() ? "" : " · " + c.region), () -> {
+                            Loc.setManual(this, c);
+                            closePanel();
+                            Toast.makeText(this, "Город: " + c.name, Toast.LENGTH_SHORT).show();
+                            wall.refreshWeather();
+                            wall.next();
+                        });
+                        if (first == null) first = b;
+                    }
+                    if (first != null) first.requestFocus();
+                });
+            }).start();
+        };
+        q.setOnEditorActionListener((v, id, ev) -> { find.run(); return true; });
+        LinearLayout.LayoutParams fl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        fl.leftMargin = dp(12);
+        row.addView(Panel.action(this, "Найти", find), fl);
+        p.body.addView(row);
+        android.widget.HorizontalScrollView hs = new android.widget.HorizontalScrollView(this);
+        hs.setHorizontalScrollBarEnabled(false);
+        hs.setClipToPadding(false);
+        hs.setPadding(0, dp(16), 0, dp(4));
+        hs.addView(results);
+        p.body.addView(hs);
+        showPanel(p, q);
     }
 
     private void openHaSetup() {
@@ -930,7 +1002,7 @@ public class HomeActivity extends Activity {
 
     private void openWeather() {
         Weather w = WallpaperView.lastWeather;
-        Panel p = new Panel(this, "Погода · Череповец", null);
+        Panel p = new Panel(this, "Погода · " + Loc.name(this), null);
         if (w == null) {
             p.count.setText("");
             TextView t = Ui.text(this, 16, 400, 0xB3FFFFFF);
