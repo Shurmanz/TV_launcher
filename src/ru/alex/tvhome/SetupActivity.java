@@ -46,7 +46,10 @@ public class SetupActivity extends Activity {
         String me = new ComponentName(c, HomeKeyService.class).flattenToString();
         String list = Settings.Secure.getString(c.getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
         if (list == null) return false;
-        for (String s : list.split(":")) if (s.equalsIgnoreCase(me)) return true;
+        for (String s : list.split(":")) {
+            ComponentName cn = ComponentName.unflattenFromString(s); // понимает и короткую запись «пакет/.Класс»
+            if (cn != null && cn.flattenToString().equalsIgnoreCase(me)) return true;
+        }
         return false;
     }
 

@@ -296,20 +296,24 @@ final class Optimizer {
     /** Все разрешения Slauncher одной командой. Возвращает вывод (для журнала). */
     static String fixAll(Context c) throws Exception {
         String me = c.getPackageName();
-        String svc = me + "/.HomeKeyService";
-        String cur = Adb.sh(c, "settings get secure enabled_accessibility_services").trim();
-        String acc = (cur.isEmpty() || cur.equals("null")) ? svc
-                : (cur.toLowerCase(Locale.US).contains(svc.toLowerCase(Locale.US)) ? cur : cur + ":" + svc);
         List<String> cmds = new ArrayList<>();
-        cmds.add("settings put secure enabled_accessibility_services " + Adb.q(acc));
-        cmds.add("settings put secure accessibility_enabled 1");
+        // Пишем только то, чего нет: перезапись списка служб перезапускает службу «Домой» и закрывает экран
+        if (!SetupActivity.homeServiceOn(c)) {
+            String svc = new android.content.ComponentName(c, HomeKeyService.class).flattenToString();
+            String cur = Adb.sh(c, "settings get secure enabled_accessibility_services").trim();
+            String acc = (cur.isEmpty() || cur.equals("null")) ? svc : cur + ":" + svc;
+            cmds.add("settings put secure enabled_accessibility_services " + Adb.q(acc));
+            cmds.add("settings put secure accessibility_enabled 1");
+        }
         cmds.add("appops set " + me + " SYSTEM_ALERT_WINDOW allow");
         cmds.add("appops set " + me + " REQUEST_INSTALL_PACKAGES allow");
         cmds.add("appops set " + me + " APP_AUTO_START allow");
         cmds.add("pm grant " + me + " android.permission.ACCESS_FINE_LOCATION");
         cmds.add("pm grant " + me + " android.permission.WRITE_SECURE_SETTINGS");
-        cmds.add("settings put secure screensaver_components " + me + "/.NatureDream");
-        cmds.add("settings put secure screensaver_enabled 1");
+        if (!SetupActivity.dreamOn(c)) {
+            cmds.add("settings put secure screensaver_components " + me + "/.NatureDream");
+            cmds.add("settings put secure screensaver_enabled 1");
+        }
         runBatch(c, cmds);
         c.getSharedPreferences(SetupActivity.PREF, Context.MODE_PRIVATE).edit().putBoolean("tcl_autostart", true).apply();
         return "ok";

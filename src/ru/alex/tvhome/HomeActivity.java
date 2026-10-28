@@ -922,14 +922,13 @@ public class HomeActivity extends Activity {
     private void openRestore() {
         Panel p = new Panel(this, "Восстановить из копии",
                 "Приложения вернутся в состояние на момент копии; удалённые сторонние — установятся заново. Slauncher не трогается.");
-        LinearLayout row = new LinearLayout(this);
-        View cancel = addAction(row, "Отмена", () -> buildOptimizer(null));
-        p.body.addView(row);
+        LinearLayout strip = p.strip();
+        View cancel = addAction(strip, "Отмена", () -> buildOptimizer(null));
         showPanel(p, cancel);
         bg(p, "ищу копии…", () -> Optimizer.listBackups(this), list -> {
             if (panel != p) return;
             p.count.setText(list.isEmpty() ? "копий нет" : "копий: " + list.size());
-            LinearLayout strip = p.strip();
+            strip.removeView(cancel);
             View first = null;
             for (int i = 0; i < Math.min(8, list.size()); i++) {
                 String name = list.get(i);
@@ -939,7 +938,9 @@ public class HomeActivity extends Activity {
                 }));
                 if (first == null) first = b;
             }
+            addAction(strip, "Отмена", () -> buildOptimizer(null));
             if (first != null) first.requestFocus();
+            else strip.getChildAt(0).requestFocus();
         });
     }
 
