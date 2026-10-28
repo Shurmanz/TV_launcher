@@ -49,6 +49,7 @@ public class HomeActivity extends Activity {
     private GlowView glow;
     private ClockView clock;
     private TextView weatherBtn, netLabel, moveHint, tip;
+    private LinearLayout updBar;
     private Icon settingsIcon;
     private View inputsChip;
     private HaCorner haCorner;
@@ -93,7 +94,7 @@ public class HomeActivity extends Activity {
         updateNet();
         HaReceiver.listener = () -> { if (haCorner != null) haCorner.refresh(); };
         haCorner.refresh();
-        Updater.check(this, false, (avail, name) -> settingsIcon.setDot(avail));
+        Updater.check(this, false, (avail, name) -> { settingsIcon.setDot(avail); updateTip(); });
         HaClient.ensure(this);
         updateTip();
         if (!setupOffered && !getSharedPreferences(SetupActivity.PREF, MODE_PRIVATE).getBoolean("seen", false)
@@ -277,12 +278,39 @@ public class HomeActivity extends Activity {
         tl.bottomMargin = dp(28);
         content.addView(tip, tl);
 
+        // плашка «вышла новая версия»: Обновить / Позже
+        updBar = new LinearLayout(this);
+        updBar.setGravity(Gravity.CENTER_VERTICAL);
+        updBar.setPadding(dp(22), dp(8), dp(10), dp(8));
+        updBar.setBackground(Ui.round(0xE61C1C1E, dp(100), dp(1), 0x40FFFFFF));
+        updBar.setVisibility(View.GONE);
+        TextView ut = Ui.text(this, 15, 500, 0xFFFFFFFF);
+        ut.setShadowLayer(0, 0, 0, 0);
+        updBar.addView(ut);
+        LinearLayout ua = new LinearLayout(this);
+        LinearLayout.LayoutParams ual = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        ual.leftMargin = dp(16);
+        addAction(ua, "Обновить", () -> { updBar.setVisibility(View.GONE); runUpdate(null); });
+        addAction(ua, "Позже", () -> { Updater.dismissBanner(this); updateTip(); focusFirstTile(); });
+        updBar.addView(ua, ual);
+        content.addView(updBar, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL) {{ bottomMargin = dp(24); }});
+
         setContentView(root);
     }
 
     /** Внизу экрана: напоминание про кнопку «Домой» (важнее) или подсказка, как добавить приложения. */
     private void updateTip() {
         if (tip == null) return;
+        boolean showUpd = SetupActivity.homeServiceOn(this) && Updater.available(this) && !Updater.bannerDismissed(this)
+                && moving == null;
+        if (showUpd) {
+            ((TextView) updBar.getChildAt(0)).setText("Вышла новая версия Slauncher " + Updater.remoteName(this));
+            updBar.setVisibility(View.VISIBLE);
+            tip.setVisibility(View.GONE);
+            return;
+        }
+        updBar.setVisibility(View.GONE);
         if (!SetupActivity.homeServiceOn(this)) {
             tip.setText("Кнопка «Домой» на пульте сейчас ведёт не в Slauncher  ·  ОК — включить");
             tip.setFocusable(true);
@@ -835,12 +863,31 @@ public class HomeActivity extends Activity {
         addAction(bk, "Сохранить сейчас", () -> bg(p, "сохраняю копию…", () -> Optimizer.backup(this, Optimizer.read(this), null),
                 d -> { Toast.makeText(this, "Копия сохранена ✓", Toast.LENGTH_LONG).show(); buildOptimizer(null); }));
         addAction(bk, "Восстановить…", this::openRestore);
+        addAction(bk, "Удалить Slauncher…", this::confirmUninstallAll);
         section(p, "Резервные копии", last.isEmpty() ? "Ещё не делалась — Slauncher предложит её перед изменениями."
                 : "Последняя: " + Optimizer.pretty(last) + ". Папка Slauncher/backups.", bk);
         showPanel(p, todo.isEmpty() ? list : first);
     }
 
     private void buildOptimizerAgain() { buildOptimizer(null); }
+
+    /** «Удалить Slauncher и вернуть всё как было»: Google TV, приложения из самой первой копии, разрешения, сам Slauncher. */
+    private void confirmUninstallAll() {
+        Panel p = new Panel(this, "Удалить Slauncher?", "Ищу самую первую резервную копию…");
+        LinearLayout row = new LinearLayout(this);
+        View cancel = addAction(row, "Отмена", this::buildOptimizerAgain);
+        p.body.addView(row);
+        showPanel(p, cancel);
+        bg(p, null, () -> Optimizer.listBackups(this), list -> {
+            if (panel != p) return;
+            String first = list.isEmpty() ? null : list.get(list.size() - 1);
+            p.hint.setText("Телевизор вернётся к тому, что было до Slauncher: "
+                    + (optState != null && Optimizer.googleTvOff(optState) ? "включится Google TV, " : "")
+                    + (first != null ? "приложения — как в самой первой копии (" + Optimizer.pretty(first) + "), " : "")
+                    + "уберутся разрешения и заставка Slauncher, затем он удалится. Резервные копии останутся в памяти ТВ.");
+            addAction(row, "Удалить и вернуть", () -> bg(p, "возвращаю…", () -> { Optimizer.uninstallAll(this, first); return 0; }, v -> { }));
+        });
+    }
 
     private void doGoogleTvOff() {
         Panel p = panel instanceof Panel ? (Panel) panel : null;
@@ -1058,6 +1105,7 @@ public class HomeActivity extends Activity {
         moving = pkg;
         moveHint.setVisibility(View.VISIBLE);
         tip.setVisibility(View.GONE);
+        updBar.setVisibility(View.GONE);
         View t = findTile(pkg);
         if (t != null) {
             t.requestFocus();

@@ -115,6 +115,37 @@ final class Optimizer {
      * Сохранённая сеть Wi‑Fi добавлена мастером первичной настройки Google (setupwraith)?
      * Тогда при его отключении Android удалит и сеть — пароль придётся вводить заново (так было на TCL 28.10).
      */
+    /**
+     * Вернуть телевизор «как было» и удалить Slauncher: Google TV, состояние приложений из первой копии,
+     * анимации, служба «Домой» и заставка, затем pm uninstall (на нём процесс Slauncher завершится).
+     */
+    static void uninstallAll(Context c, String firstBackup) throws Exception {
+        if (firstBackup != null) restore(c, firstBackup);
+        State s = read(c);
+        if (hasGoogleTv(s) && googleTvOff(s)) googleTvOn(c); // после копии: Google TV включён в любом случае
+        String me = c.getPackageName();
+        String svc = new android.content.ComponentName(c, HomeKeyService.class).flattenToString();
+        String acc = Adb.sh(c, "settings get secure enabled_accessibility_services").trim();
+        StringBuilder rest = new StringBuilder();
+        for (String a : acc.split(":")) {
+            android.content.ComponentName cn = android.content.ComponentName.unflattenFromString(a);
+            if (a.isEmpty() || a.equals("null") || (cn != null && cn.flattenToString().equalsIgnoreCase(svc))) continue;
+            if (rest.length() > 0) rest.append(':');
+            rest.append(a);
+        }
+        List<String> cmds = new ArrayList<>();
+        cmds.add(rest.length() == 0 ? "settings delete secure enabled_accessibility_services"
+                : "settings put secure enabled_accessibility_services " + Adb.q(rest.toString()));
+        String dream = Adb.sh(c, "settings get secure screensaver_components").trim();
+        if (dream.startsWith(me)) {
+            cmds.add(s.of("com.google.android.apps.tv.dreamx") != St.ABSENT
+                    ? "pm enable com.google.android.apps.tv.dreamx; settings put secure screensaver_components com.google.android.apps.tv.dreamx/.service.Backdrop"
+                    : "settings delete secure screensaver_components");
+        }
+        runBatch(c, cmds);
+        Adb.sh(c, "pm uninstall " + me);
+    }
+
     static boolean wifiFromSetup(Context c) throws Exception {
         String r = Adb.sh(c, "dumpsys wifi | sed -n '/Configured networks Begin/,/Configured networks End/p' | grep -c 'cname="
                 + GTV_SETUP + "'");

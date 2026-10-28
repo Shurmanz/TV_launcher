@@ -105,6 +105,19 @@ final class Updater {
         return p.getInt("remote", 0) > myVersion(c);
     }
 
+    static int remoteCode(Context c) {
+        return c.getSharedPreferences("update", Context.MODE_PRIVATE).getInt("remote", 0);
+    }
+
+    /** Плашку «вышла новая версия» скрыли для этой версии? */
+    static boolean bannerDismissed(Context c) {
+        return c.getSharedPreferences("update", Context.MODE_PRIVATE).getInt("dismissed", 0) >= remoteCode(c);
+    }
+
+    static void dismissBanner(Context c) {
+        c.getSharedPreferences("update", Context.MODE_PRIVATE).edit().putInt("dismissed", remoteCode(c)).apply();
+    }
+
     static String remoteName(Context c) {
         return c.getSharedPreferences("update", Context.MODE_PRIVATE).getString("name", "");
     }
