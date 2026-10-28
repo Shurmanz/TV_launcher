@@ -808,7 +808,7 @@ public class HomeActivity extends Activity {
 
     private void openOptList(String focusPkg) {
         Panel p = new Panel(this, "Приложения и сервисы",
-                "Системные только отключаются — их можно включить обратно. Сторонние удаляются, установочный файл сохраняется в копию.");
+                "Системные отключаются (можно вернуть), сторонние удаляются — установочный файл уходит в копию.");
         ScrollView sv = new ScrollView(this);
         sv.setVerticalScrollBarEnabled(false);
         sv.setClipToPadding(false);
@@ -816,7 +816,7 @@ public class HomeActivity extends Activity {
         sv.setVerticalFadingEdgeEnabled(true);
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
-        col.setPadding(dp(4), dp(4), dp(4), dp(8));
+        col.setPadding(dp(4), dp(2), dp(14), dp(8));
         sv.addView(col);
         View first = null, focus = null;
         String group = null;
@@ -846,7 +846,11 @@ public class HomeActivity extends Activity {
             }
         }
         p.count.setText("отключено: " + off);
-        p.body.addView(sv, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(290)));
+        // панель не обрезает детей (эффект фокуса) — список обрезаем отдельной рамкой, иначе он вылезает на заголовок
+        FrameLayout clip = new FrameLayout(this);
+        clip.setClipChildren(true);
+        clip.addView(sv, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        p.body.addView(clip, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(250)));
         LinearLayout bottom = new LinearLayout(this);
         bottom.setGravity(Gravity.END);
         addAction(bottom, "Готово", () -> buildOptimizer(null));
