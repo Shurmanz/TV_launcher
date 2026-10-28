@@ -488,20 +488,39 @@ public class HomeActivity extends Activity {
         return t;
     }
 
+    /** Строка настроек: слева заголовок и пояснение, справа кнопки — всё помещается без прокрутки. */
     private void section(Panel p, String head, String text, LinearLayout actions) {
-        TextView h = Ui.text(this, 13, 600, 0x80FFFFFF);
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        TextView h = Ui.text(this, 12, 600, 0x80FFFFFF);
         h.setShadowLayer(0, 0, 0, 0);
         h.setLetterSpacing(0.12f);
         h.setText(head.toUpperCase(new Locale("ru")));
-        LinearLayout.LayoutParams hl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        hl.topMargin = p.body.getChildCount() == 0 ? 0 : dp(18);
-        p.body.addView(h, hl);
+        col.addView(h);
         TextView t = infoLine(text);
+        t.setTextSize(15);
         LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        tl.topMargin = dp(6);
-        tl.bottomMargin = dp(10);
-        p.body.addView(t, tl);
-        if (actions != null) p.body.addView(actions);
+        tl.topMargin = dp(4);
+        col.addView(t, tl);
+        row.addView(col, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        if (actions != null) {
+            LinearLayout.LayoutParams al = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            al.leftMargin = dp(16);
+            row.addView(actions, al);
+        }
+        LinearLayout.LayoutParams rl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rl.topMargin = p.body.getChildCount() == 0 ? dp(4) : dp(14);
+        if (p.body.getChildCount() > 0) {
+            View sep = new View(this);
+            sep.setBackgroundColor(0x1AFFFFFF);
+            LinearLayout.LayoutParams sl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1);
+            sl.topMargin = dp(14);
+            p.body.addView(sep, sl);
+        }
+        p.body.addView(row, rl);
     }
 
     private void openAppSettings() {
