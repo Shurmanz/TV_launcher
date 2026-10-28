@@ -30,41 +30,32 @@ final class Optimizer {
         Item(String pkg, String name, String group, boolean rec) { this.pkg = pkg; this.name = name; this.group = group; this.recommended = rec; }
     }
 
-    static final String G_ADS = "Реклама и слежка", G_APPS = "Ненужные приложения", G_SVC = "Лишние службы";
+    static final String G_GOOGLE = "Google — на любом телевизоре", G_APPS = "Чужие сервисы и приложения",
+            G_TCL = "TCL", G_XIAOMI = "Xiaomi";
 
     static final Item[] CATALOG = {
-            // реклама, телеметрия
-            new Item("com.tcl.waterfall.overseas", "Рекламная лента TCL", G_ADS, true),
-            new Item("com.tcl.channelplus", "TCL Channel+ (реклама каналов)", G_ADS, true),
-            new Item("com.tcl.esticker", "Рекламные наклейки TCL", G_ADS, true),
-            new Item("com.tcl.messagebox", "Сообщения TCL", G_ADS, true),
-            new Item("com.tcl.guard", "TCL Guard", G_ADS, true),
-            new Item("com.tcl.logkit", "Сбор журналов TCL", G_ADS, true),
-            new Item("com.tcl.dashboard", "Панель TCL", G_ADS, true),
-            new Item("com.tcl.tv.tclhome_passive", "Рекомендации TCL Home", G_ADS, true),
-            new Item("com.tcl.partnercustomizer", "Партнёрские настройки TCL", G_ADS, true),
-            new Item("com.google.android.partnersetup", "Партнёрские настройки Google", G_ADS, true),
-            new Item("android.autoinstalls.config.google.gtvpai", "Автоустановка партнёрских приложений", G_ADS, true),
-            new Item("com.google.android.feedback", "Отчёты Google", G_ADS, true),
-            new Item("com.google.android.tvrecommendations", "Рекомендации Android TV", G_ADS, true),
-            new Item("com.google.android.leanbacklauncher.recommendations", "Рекомендации Android TV", G_ADS, true),
-            new Item("com.xiaomi.mitv.tvpush", "Реклама Xiaomi", G_ADS, true),
-            new Item("com.xiaomi.mitv.advertise", "Реклама Xiaomi", G_ADS, true),
-            new Item("com.miui.systemAdSolution", "Реклама Xiaomi", G_ADS, true),
-            // приложения
+            // Google: одинаково на любом Android TV / Google TV
+            new Item("com.google.android.feedback", "Отчёты Google", G_GOOGLE, true),
+            new Item("com.google.android.partnersetup", "Партнёрские настройки Google", G_GOOGLE, true),
+            new Item("android.autoinstalls.config.google.gtvpai", "Автоустановка партнёрских приложений", G_GOOGLE, true),
+            new Item("com.google.android.tvrecommendations", "Рекомендации Android TV", G_GOOGLE, true),
+            new Item("com.google.android.leanbacklauncher.recommendations", "Рекомендации Android TV", G_GOOGLE, true),
+            new Item("com.google.android.videos", "Google TV: фильмы", G_GOOGLE, true),
+            new Item("com.google.android.play.games", "Google Play Игры", G_GOOGLE, true),
+            new Item("com.google.android.youtube.tvmusic", "YouTube Music", G_GOOGLE, true),
+            new Item("com.google.android.music", "Google Play Музыка", G_GOOGLE, true),
+            new Item("com.google.android.apps.tv.dreamx", "Заставка Google (её заменяет заставка Slauncher)", G_GOOGLE, true),
+            new Item("com.google.android.backdrop", "Заставка Google", G_GOOGLE, true),
+            new Item("com.google.android.marvin.talkback", "TalkBack (озвучка экрана)", G_GOOGLE, true),
+            new Item("com.google.android.syncadapters.calendar", "Синхронизация календаря", G_GOOGLE, true),
+            new Item("com.google.android.onetimeinitializer", "Первичная настройка Google", G_GOOGLE, true),
+            new Item("com.android.printspooler", "Печать", G_GOOGLE, true),
+            new Item("com.android.hotspot2.osulogin", "Вход в сети Passpoint", G_GOOGLE, true),
+            new Item("com.android.wallpaperbackup", "Резервные копии обоев", G_GOOGLE, true),
+            new Item("com.google.android.apps.mediashell", "Chromecast (трансляция с телефона)", G_GOOGLE, false),
+            // чужие сервисы
             new Item("com.netflix.ninja", "Netflix", G_APPS, true),
             new Item("com.amazon.amazonvideo.livingroom", "Prime Video", G_APPS, true),
-            new Item("com.google.android.videos", "Google TV: фильмы", G_APPS, true),
-            new Item("com.google.android.play.games", "Google Play Игры", G_APPS, true),
-            new Item("com.google.android.youtube.tvmusic", "YouTube Music", G_APPS, true),
-            new Item("com.google.android.music", "Google Play Музыка", G_APPS, true),
-            new Item("com.tcl.browser", "Браузер TCL", G_APPS, true),
-            new Item("com.tcl.gallery", "Галерея TCL", G_APPS, true),
-            new Item("com.tcl.ui_mediaCenter", "Медиацентр TCL", G_APPS, true),
-            new Item("com.tcl.gamebar", "Игровая панель TCL", G_APPS, true),
-            new Item("com.tcl.ocean.instructions", "Инструкция TCL", G_APPS, true),
-            new Item("com.tcl.notereminder", "Напоминания TCL", G_APPS, false),
-            new Item("com.tcl.usercenter", "Аккаунт TCL", G_APPS, false),
             new Item("com.tcl.smartalexa", "Alexa", G_APPS, true),
             new Item("au.com.stan.and", "Stan", G_APPS, true),
             new Item("jp.unext.tv.player", "U-NEXT", G_APPS, true),
@@ -72,17 +63,61 @@ final class Optimizer {
             new Item("tv.abema", "ABEMA", G_APPS, true),
             new Item("tv.wuaki.apptv", "Rakuten TV", G_APPS, true),
             new Item("jp.happyon.android", "Hulu Japan", G_APPS, true),
-            // службы
-            new Item("com.tcl.airplay2", "AirPlay TCL", G_SVC, true),
-            new Item("com.mediatek.AirplayAPK", "AirPlay MediaTek", G_SVC, true),
-            new Item("com.tcl.hearaid", "Слуховой помощник TCL", G_SVC, true),
-            new Item("com.google.android.marvin.talkback", "TalkBack (озвучка экрана)", G_SVC, true),
-            new Item("com.google.android.apps.tv.dreamx", "Заставка Google (её заменяет заставка Slauncher)", G_SVC, true),
-            new Item("com.google.android.backdrop", "Заставка Google", G_SVC, true),
-            new Item("com.tcl.android.webview", "WebView TCL (есть WebView Google)", G_SVC, true),
-            new Item("com.google.android.syncadapters.calendar", "Синхронизация календаря", G_SVC, true),
-            new Item("com.google.android.onetimeinitializer", "Первичная настройка Google", G_SVC, true),
+            // TCL
+            new Item("com.tcl.waterfall.overseas", "Рекламная лента TCL", G_TCL, true),
+            new Item("com.tcl.channelplus", "TCL Channel+ (реклама каналов)", G_TCL, true),
+            new Item("com.tcl.esticker", "Рекламные наклейки TCL", G_TCL, true),
+            new Item("com.tcl.messagebox", "Сообщения TCL", G_TCL, true),
+            new Item("com.tcl.guard", "TCL Guard", G_TCL, true),
+            new Item("com.tcl.logkit", "Сбор журналов TCL", G_TCL, true),
+            new Item("com.tcl.dashboard", "Панель TCL", G_TCL, true),
+            new Item("com.tcl.tv.tclhome_passive", "Рекомендации TCL Home", G_TCL, true),
+            new Item("com.tcl.partnercustomizer", "Партнёрские настройки TCL", G_TCL, true),
+            new Item("com.tcl.browser", "Браузер TCL", G_TCL, true),
+            new Item("com.tcl.gallery", "Галерея TCL", G_TCL, true),
+            new Item("com.tcl.ui_mediaCenter", "Медиацентр TCL", G_TCL, true),
+            new Item("com.tcl.gamebar", "Игровая панель TCL", G_TCL, true),
+            new Item("com.tcl.ocean.instructions", "Инструкция TCL", G_TCL, true),
+            new Item("com.tcl.airplay2", "AirPlay TCL", G_TCL, true),
+            new Item("com.mediatek.AirplayAPK", "AirPlay MediaTek", G_TCL, true),
+            new Item("com.tcl.hearaid", "Слуховой помощник TCL", G_TCL, true),
+            new Item("com.tcl.android.webview", "WebView TCL (есть WebView Google)", G_TCL, true),
+            new Item("com.tcl.notereminder", "Напоминания TCL", G_TCL, false),
+            new Item("com.tcl.usercenter", "Аккаунт TCL", G_TCL, false),
+            // Xiaomi (дополнится по реальному списку с приставки)
+            new Item("com.xiaomi.mitv.tvpush", "Реклама Xiaomi", G_XIAOMI, true),
+            new Item("com.xiaomi.mitv.advertise", "Реклама Xiaomi", G_XIAOMI, true),
+            new Item("com.miui.systemAdSolution", "Реклама Xiaomi", G_XIAOMI, true),
     };
+
+    // ---------- Google TV Launcher ----------
+
+    static final String GTV = "com.google.android.apps.tv.launcherx", GTV_SETUP = "com.google.android.tungsten.setupwraith";
+
+    static boolean hasGoogleTv(State s) { return s.of(GTV) != St.ABSENT; }
+    static boolean googleTvOff(State s) { return s.of(GTV) == St.DISABLED; }
+
+    /**
+     * Отключить Google TV Launcher (рекламная лента Google) и его «сторожа» setupwraith, который иначе включает его обратно.
+     * Домашним экраном становится Slauncher. Возврат — googleTvOn().
+     */
+    static void googleTvOff(Context c) throws Exception {
+        String me = c.getPackageName() + "/.HomeActivity";
+        List<String> cmds = new ArrayList<>();
+        cmds.add("cmd package set-home-activity " + me);
+        cmds.add("pm disable-user --user 0 " + GTV_SETUP);
+        cmds.add("pm disable-user --user 0 " + GTV);
+        runBatch(c, cmds);
+        Adb.prefs(c).edit().putBoolean("dirty", true).apply();
+    }
+
+    static void googleTvOn(Context c) throws Exception {
+        List<String> cmds = new ArrayList<>();
+        cmds.add("pm enable " + GTV);
+        cmds.add("pm enable " + GTV_SETUP);
+        runBatch(c, cmds);
+        Adb.prefs(c).edit().putBoolean("dirty", true).apply();
+    }
 
     /** Состояние пакета на устройстве. */
     enum St { ENABLED, DISABLED, REMOVED, ABSENT }

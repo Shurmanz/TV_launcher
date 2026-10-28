@@ -742,18 +742,24 @@ public class HomeActivity extends Activity {
         Panel p = new Panel(this, "Оптимизация", null);
         p.count.setText("доступ к системе ✓");
 
+        String a = optState.anim;
+        boolean fast = a.equals("0.5") || a.equals("0.5x");
         LinearLayout perm = new LinearLayout(this);
         View first = addAction(perm, "Включить всё", () -> bg(p, "настраиваю…", () -> Optimizer.fixAll(this), v -> {
             p.count.setText("доступ к системе ✓");
             Toast.makeText(this, "0".equals(v) ? "Всё уже было включено ✓" : "Разрешения Slauncher включены ✓", Toast.LENGTH_LONG).show();
         }));
-        section(p, "Разрешения Slauncher", "Кнопка «Домой», показ поверх фильма, заставка, автозапуск — всё сразу.", perm);
+        addAction(perm, fast ? "Обычные анимации" : "Ускорить анимации", () -> bg(p, "меняю…", () -> {
+            Optimizer.setAnim(this, fast ? "1.0" : "0.5");
+            return Optimizer.read(this);
+        }, s -> { optState = s; buildOptimizer(null); }));
+        section(p, "Разрешения и скорость", "Кнопка «Домой», показ поверх фильма, заставка, автозапуск. Анимации: "
+                + (fast ? "ускорены (0.5×)." : "обычные."), perm);
 
         List<Optimizer.Item> todo = present(true);
         int off = 0;
         for (Optimizer.Item i : present(false)) if (optState.of(i.pkg) != Optimizer.St.ENABLED) off++;
         LinearLayout apps = new LinearLayout(this);
-        View list = addAction(apps, "Выбрать…", () -> openOptList(null));
         if (!todo.isEmpty()) addAction(apps, "Отключить лишнее (" + todo.size() + ")", () -> withBackup(() ->
                 bg(p, "отключаю…", () -> {
                     List<String> cmds = new ArrayList<>();
@@ -763,26 +769,38 @@ public class HomeActivity extends Activity {
                     return Optimizer.read(this);
                 }, s -> { optState = s; buildOptimizer(null); Toast.makeText(this, "Отключено: " + todo.size(), Toast.LENGTH_LONG).show(); }),
                 this::buildOptimizerAgain));
+        View list = addAction(apps, "Выбрать…", () -> openOptList(null));
         section(p, "Реклама и лишние приложения", (todo.isEmpty() ? "Всё лишнее уже отключено" : "Можно отключить: " + todo.size())
-                + "  ·  отключено: " + off + "  ·  сторонних приложений: " + optState.third.size(), apps);
+                + "  ·  отключено: " + off + "  ·  сторонних: " + optState.third.size(), apps);
 
-        String a = optState.anim;
-        boolean fast = a.equals("0.5") || a.equals("0.5x");
-        LinearLayout anim = new LinearLayout(this);
-        addAction(anim, fast ? "Сделать обычной" : "Ускорить", () -> bg(p, "меняю…", () -> {
-            Optimizer.setAnim(this, fast ? "1.0" : "0.5");
-            return Optimizer.read(this);
-        }, s -> { optState = s; buildOptimizer(null); }));
-        section(p, "Анимации", fast ? "Ускорены (0.5×): меню открываются быстрее." : "Обычная скорость. Можно ускорить вдвое.", anim);
+        LinearLayout gtv = new LinearLayout(this);
+        String gtvText;
+        if (Optimizer.hasGoogleTv(optState)) {
+            boolean gOff = Optimizer.googleTvOff(optState);
+            addAction(gtv, gOff ? "Вернуть Google TV" : "Отключить Google TV", () -> {
+                if (gOff) bg(p, "возвращаю…", () -> { Optimizer.googleTvOn(this); return Optimizer.read(this); },
+                        s -> { optState = s; buildOptimizer(null); Toast.makeText(this, "Google TV включён обратно", Toast.LENGTH_LONG).show(); });
+                else withBackup(() -> bg(p, "отключаю…", () -> { Optimizer.googleTvOff(this); return Optimizer.read(this); },
+                        s -> { optState = s; buildOptimizer(null); Toast.makeText(this, "Google TV отключён, дом — Slauncher", Toast.LENGTH_LONG).show(); }),
+                        this::buildOptimizerAgain);
+            });
+            gtvText = gOff ? "Лента Google TV с рекламой отключена, домашний экран — Slauncher."
+                    : "Лента Google TV с рекламой работает в фоне. Можно отключить — вернуть одной кнопкой.";
+        } else gtvText = "Персонализация рекламы и рекламный идентификатор — в настройках Google.";
+        addAction(gtv, "Реклама Google", () -> {
+            try { startActivity(new Intent("com.google.android.gms.settings.ADS_PRIVACY").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); }
+            catch (Exception e) { openSettings(Settings.ACTION_PRIVACY_SETTINGS); }
+        });
+        section(p, "Google TV", gtvText, gtv);
 
         String last = Optimizer.lastBackup(this);
         LinearLayout bk = new LinearLayout(this);
         addAction(bk, "Сохранить сейчас", () -> bg(p, "сохраняю копию…", () -> Optimizer.backup(this, Optimizer.read(this), null),
                 d -> { Toast.makeText(this, "Копия сохранена ✓", Toast.LENGTH_LONG).show(); buildOptimizer(null); }));
         addAction(bk, "Восстановить…", this::openRestore);
-        section(p, "Резервные копии", last.isEmpty() ? "Ещё не делалась. Перед изменениями Slauncher предложит её сделать."
-                : "Последняя: " + Optimizer.pretty(last) + ". Хранятся в памяти ТВ: Slauncher/backups.", bk);
-        showPanel(p, focus != null ? p.findViewWithTag(focus) : (todo.isEmpty() ? list : first));
+        section(p, "Резервные копии", last.isEmpty() ? "Ещё не делалась — Slauncher предложит её перед изменениями."
+                : "Последняя: " + Optimizer.pretty(last) + ". Папка Slauncher/backups.", bk);
+        showPanel(p, todo.isEmpty() ? list : first);
     }
 
     private void buildOptimizerAgain() { buildOptimizer(null); }
