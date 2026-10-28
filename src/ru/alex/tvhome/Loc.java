@@ -137,6 +137,8 @@ final class Loc {
         if (a == null) return res;
         for (int i = 0; i < a.length(); i++) {
             JSONObject r = a.getJSONObject(i);
+            String fc = r.optString("feature_code");
+            if (!fc.isEmpty() && !fc.startsWith("PPL")) continue; // только населённые пункты, без аэропортов и рек
             String region = r.optString("admin1");
             String country = r.optString("country");
             if (!country.isEmpty() && !country.toLowerCase(Locale.ROOT).startsWith("росс")) region = region.isEmpty() ? country : region + ", " + country;

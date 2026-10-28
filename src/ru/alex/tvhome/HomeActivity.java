@@ -612,6 +612,8 @@ public class HomeActivity extends Activity {
                 final List<Loc.City> f = found;
                 runOnUiThread(() -> {
                     results.removeAllViews();
+                    ((android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE))
+                            .hideSoftInputFromWindow(q.getWindowToken(), 0); // убрать клавиатуру — видно список
                     if (f.isEmpty()) { results.addView(infoLine("Ничего не нашлось")); return; }
                     View first = null;
                     for (Loc.City c : f) {
