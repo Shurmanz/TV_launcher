@@ -868,24 +868,25 @@ public class HomeActivity extends Activity {
 
         LinearLayout gtv = new LinearLayout(this);
         String gtvText;
-        if (Optimizer.hasGoogleTv(optState)) {
-            boolean gOff = Optimizer.googleTvOff(optState);
-            addAction(gtv, gOff ? "Вернуть Google TV" : "Отключить Google TV", () -> {
-                if (gOff) bg(p, "возвращаю…", () -> { Optimizer.googleTvOn(this); return Optimizer.read(this); },
-                        s -> { optState = s; buildOptimizer(null); Toast.makeText(this, "Google TV включён обратно", Toast.LENGTH_LONG).show(); });
+        if (Optimizer.hasStockHome(this, optState)) {
+            boolean gOff = Optimizer.homeOff(this, optState);
+            String hn = Optimizer.homeName(this, optState);
+            addAction(gtv, gOff ? "Вернуть " + hn : "Отключить " + hn, () -> {
+                if (gOff) bg(p, "возвращаю…", () -> { Optimizer.homeOn(this); return Optimizer.read(this); },
+                        s -> { optState = s; buildOptimizer(null); Toast.makeText(this, hn + " включён обратно", Toast.LENGTH_LONG).show(); });
                 else bg(p, "проверяю Wi‑Fi…", () -> Optimizer.wifiFromSetup(this), fromSetup -> {
                     if (fromSetup) confirmGoogleTvOff();
                     else withBackup(this::doGoogleTvOff, this::buildOptimizerAgain);
                 });
             });
-            gtvText = gOff ? "Лента Google TV с рекламой отключена, домашний экран — Slauncher."
-                    : "Лента Google TV с рекламой работает в фоне. Можно отключить — вернуть одной кнопкой.";
+            gtvText = gOff ? "Штатный экран " + hn + " отключён, домашний экран — Slauncher."
+                    : hn + " с рекламой работает в фоне. Можно отключить — вернуть одной кнопкой.";
         } else gtvText = "Персонализация рекламы и рекламный идентификатор — в настройках Google.";
         addAction(gtv, "Реклама Google", () -> {
             try { startActivity(new Intent("com.google.android.gms.settings.ADS_PRIVACY").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); }
             catch (Exception e) { openSettings(Settings.ACTION_PRIVACY_SETTINGS); }
         });
-        section(p, "Google TV", gtvText, gtv);
+        section(p, "Штатный главный экран", gtvText, gtv);
 
         String last = Optimizer.lastBackup(this);
         LinearLayout bk = new LinearLayout(this);
@@ -910,7 +911,7 @@ public class HomeActivity extends Activity {
             if (panel != p) return;
             String first = list.isEmpty() ? null : list.get(list.size() - 1);
             p.hint.setText("Телевизор вернётся к тому, что было до Slauncher: "
-                    + (optState != null && Optimizer.googleTvOff(optState) ? "включится Google TV, " : "")
+                    + (optState != null && Optimizer.homeOff(this, optState) ? "включится " + Optimizer.homeName(this, optState) + ", " : "")
                     + (first != null ? "приложения — как в самой первой копии (" + Optimizer.pretty(first) + "), " : "")
                     + "уберутся разрешения и заставка Slauncher, затем он удалится. Резервные копии останутся в памяти ТВ.");
             addAction(row, "Удалить и вернуть", () -> bg(p, "возвращаю…", () -> { Optimizer.uninstallAll(this, first); return 0; }, v -> { }));
@@ -919,14 +920,14 @@ public class HomeActivity extends Activity {
 
     private void doGoogleTvOff() {
         Panel p = panel instanceof Panel ? (Panel) panel : null;
-        bg(p, "отключаю…", () -> { Optimizer.googleTvOff(this); return Optimizer.read(this); },
-                s -> { optState = s; buildOptimizer(null); Toast.makeText(this, "Google TV отключён, домашний экран — Slauncher", Toast.LENGTH_LONG).show(); });
+        bg(p, "отключаю…", () -> { Optimizer.homeOff(this); return Optimizer.read(this); },
+                s -> { optState = s; buildOptimizer(null); Toast.makeText(this, "Штатный экран отключён, домашний — Slauncher", Toast.LENGTH_LONG).show(); });
     }
 
     /** Сеть Wi‑Fi «принадлежит» мастеру Google — при отключении Android её забудет. Предупредить. */
     private void confirmGoogleTvOff() {
         Panel p = new Panel(this, "Wi‑Fi придётся подключить заново",
-                "Сеть Wi‑Fi на этом телевизоре сохранил мастер первичной настройки Google. При отключении Google TV Android её забудет: "
+                "Сеть Wi‑Fi на этом телевизоре сохранил мастер первичной настройки Google. При отключении штатного экрана Android её забудет: "
                         + "после этого откройте значок Wi‑Fi на главном экране и введите пароль. Один раз — потом сеть будет системной.");
         LinearLayout row = new LinearLayout(this);
         View cancel = addAction(row, "Отмена", this::buildOptimizerAgain);
@@ -1238,7 +1239,7 @@ public class HomeActivity extends Activity {
         Panel p = new Panel(this, "Настройки загружены ✓", "Плитки, город, стартовое приложение и Home Assistant применены"
                 + (HaConfig.url(this).isEmpty() || HaConfig.enabled(this) ? "." : " — токен Home Assistant введите заново: Home Assistant → «Настроить с телефона».")
                 + (more ? "\nНа том телевизоре ещё было: " + (n > 0 ? "отключено приложений — " + n + "; " : "")
-                + (a.anim != null ? "анимации " + a.anim + "×; " : "") + (a.googleTvOff ? "Google TV отключён" : "") : ""));
+                + (a.anim != null ? "анимации " + a.anim + "×; " : "") + (a.googleTvOff ? "штатный главный экран отключён" : "") : ""));
         LinearLayout row = new LinearLayout(this);
         View first;
         if (more && Adb.known(this)) {
@@ -1251,7 +1252,7 @@ public class HomeActivity extends Activity {
                 return Optimizer.read(this);
             }, s -> {
                 optState = s;
-                if (a.googleTvOff) Toast.makeText(this, "Google TV — отдельно: Оптимизация → «Отключить Google TV»", Toast.LENGTH_LONG).show();
+                if (a.googleTvOff) Toast.makeText(this, "Штатный главный экран — отдельно: Оптимизация → «Отключить…»", Toast.LENGTH_LONG).show();
                 buildOptimizer(null);
             }), this::closePanel));
             addAction(row, "Не надо", this::closePanel);

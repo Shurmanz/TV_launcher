@@ -61,7 +61,9 @@ final class Transfer {
         Set<String> seen = new HashSet<>();
         for (Optimizer.Item i : Optimizer.CATALOG) if (seen.add(i.pkg) && isOff(pm, i.pkg)) off.put(i.pkg);
         o.put("disabled_apps", off);
-        o.put("google_tv_off", isOff(pm, Optimizer.GTV));
+        boolean homeOff = !Optimizer.homesOff(c).isEmpty();
+        for (String h : Optimizer.KNOWN_HOMES) homeOff |= isOff(pm, h);
+        o.put("google_tv_off", homeOff); // = «штатный главный экран отключён» (имя поля — для совместимости)
         o.put("home_assistant", new JSONObject().put("url", HaConfig.url(c))
                 .put("rooms", HaConfig.rooms(c)).put("events", HaConfig.events(c)).put("climate", HaConfig.climate(c)));
         return o;
@@ -127,8 +129,7 @@ final class Transfer {
         String anim = o.optString("animations", "");
         String cur = Settings.Global.getString(c.getContentResolver(), Settings.Global.WINDOW_ANIMATION_SCALE);
         if (!anim.isEmpty() && !anim.equals(cur == null ? "1.0" : cur)) a.anim = anim;
-        a.googleTvOff = o.optBoolean("google_tv_off") && !isOff(pm, Optimizer.GTV);
-        try { pm.getApplicationInfo(Optimizer.GTV, 0); } catch (Exception e) { a.googleTvOff = false; }
+        a.googleTvOff = o.optBoolean("google_tv_off") && !Optimizer.stockHomes(c).isEmpty();
         return a;
     }
 

@@ -94,21 +94,83 @@ final class Optimizer {
 
     static final String GTV = "com.google.android.apps.tv.launcherx", GTV_SETUP = "com.google.android.tungsten.setupwraith";
 
-    static boolean hasGoogleTv(State s) { return s.of(GTV) != St.ABSENT; }
-    static boolean googleTvOff(State s) { return s.of(GTV) == St.DISABLED; }
+    // ---------- штатный главный экран (Google TV / Android TV Home / PatchWall Xiaomi …) ----------
+
+    /** Известные «главные экраны» — на случай, если отключили без списка (версии до 1.11). */
+    static final String[] KNOWN_HOMES = {GTV, "com.google.android.tvlauncher", "com.google.android.leanbacklauncher",
+            "com.mitv.tvhome", "com.xiaomi.mitv.tvhome"};
+    private static final java.util.Set<String> NOT_HOMES = new java.util.HashSet<>(java.util.Arrays.asList(
+            "com.android.tv.settings", "com.android.settings", GTV_SETUP));
+
+    /** Включённые сейчас чужие главные экраны. */
+    static List<String> stockHomes(Context c) {
+        List<String> r = new ArrayList<>();
+        android.content.Intent h = new android.content.Intent(android.content.Intent.ACTION_MAIN).addCategory(android.content.Intent.CATEGORY_HOME);
+        for (android.content.pm.ResolveInfo ri : c.getPackageManager().queryIntentActivities(h, 0)) {
+            String p = ri.activityInfo.packageName;
+            if (p.equals(c.getPackageName()) || NOT_HOMES.contains(p) || r.contains(p)) continue;
+            r.add(p);
+        }
+        return r;
+    }
+
+    /** Что отключали мы (для точного возврата). */
+    static List<String> homesOff(Context c) {
+        List<String> r = new ArrayList<>();
+        for (String p : Adb.prefs(c).getString("homes_off", "").split(",")) if (!p.isEmpty()) r.add(p);
+        return r;
+    }
+
+    static boolean homeOff(Context c, State s) {
+        for (String p : homesOff(c)) if (s.of(p) == St.DISABLED) return true;
+        for (String p : KNOWN_HOMES) if (s.of(p) == St.DISABLED) return true;
+        return false;
+    }
+
+    static boolean hasStockHome(Context c, State s) { return homeOff(c, s) || !stockHomes(c).isEmpty(); }
+
+    /** Название штатного экрана для кнопок: «Google TV», «PatchWall», «Android TV Home»… */
+    static String homeName(Context c, State s) {
+        List<String> l = homeOff(c, s) ? homesOff(c) : stockHomes(c);
+        if (l.isEmpty()) for (String p : KNOWN_HOMES) if (s.of(p) == St.DISABLED) { l.add(p); break; }
+        if (l.isEmpty()) return "главный экран";
+        String p = l.get(0);
+        if (p.equals(GTV)) return "Google TV";
+        if (p.contains("mitv")) return "PatchWall";
+        if (p.contains("tvlauncher") || p.contains("leanback")) return "Android TV Home";
+        try {
+            android.content.pm.PackageManager pm = c.getPackageManager();
+            return pm.getApplicationLabel(pm.getApplicationInfo(p, android.content.pm.PackageManager.MATCH_DISABLED_COMPONENTS)).toString();
+        } catch (Exception e) { return "главный экран"; }
+    }
 
     /**
-     * Отключить Google TV Launcher (рекламная лента Google) и его «сторожа» setupwraith, который иначе включает его обратно.
-     * Домашним экраном становится Slauncher. Возврат — googleTvOn().
+     * Отключить штатный главный экран (и мастер setupwraith — он иначе включает его обратно).
+     * Домашним экраном становится Slauncher. Список отключённого запоминается для «Вернуть».
      */
-    static void googleTvOff(Context c) throws Exception {
-        String me = c.getPackageName() + "/.HomeActivity";
+    static void homeOff(Context c) throws Exception {
+        List<String> homes = stockHomes(c);
+        if (homes.isEmpty()) return;
+        State s = read(c);
+        List<String> off = new ArrayList<>(homes);
         List<String> cmds = new ArrayList<>();
-        cmds.add("cmd package set-home-activity " + me);
-        cmds.add("pm disable-user --user 0 " + GTV_SETUP);
-        cmds.add("pm disable-user --user 0 " + GTV);
+        cmds.add("cmd package set-home-activity " + c.getPackageName() + "/.HomeActivity");
+        if (s.of(GTV_SETUP) == St.ENABLED) { cmds.add("pm disable-user --user 0 " + GTV_SETUP); off.add(GTV_SETUP); }
+        for (String h : homes) cmds.add("pm disable-user --user 0 " + h);
+        Adb.prefs(c).edit().putString("homes_off", String.join(",", off)).putBoolean("dirty", true).commit();
         runBatch(c, cmds);
-        Adb.prefs(c).edit().putBoolean("dirty", true).apply();
+    }
+
+    /** Вернуть штатный главный экран. */
+    static void homeOn(Context c) throws Exception {
+        java.util.Set<String> all = new java.util.LinkedHashSet<>(homesOff(c));
+        State s = read(c);
+        for (String p : KNOWN_HOMES) if (s.of(p) == St.DISABLED) all.add(p);
+        if (s.of(GTV_SETUP) == St.DISABLED) all.add(GTV_SETUP);
+        List<String> cmds = new ArrayList<>();
+        for (String p : all) cmds.add("pm enable " + p);
+        runBatch(c, cmds);
+        Adb.prefs(c).edit().remove("homes_off").putBoolean("dirty", true).apply();
     }
 
     /**
@@ -122,7 +184,7 @@ final class Optimizer {
     static void uninstallAll(Context c, String firstBackup) throws Exception {
         if (firstBackup != null) restore(c, firstBackup);
         State s = read(c);
-        if (hasGoogleTv(s) && googleTvOff(s)) googleTvOn(c); // после копии: Google TV включён в любом случае
+        if (homeOff(c, s)) homeOn(c); // после копии: штатный главный экран включён в любом случае
         String me = c.getPackageName();
         String svc = new android.content.ComponentName(c, HomeKeyService.class).flattenToString();
         String acc = Adb.sh(c, "settings get secure enabled_accessibility_services").trim();
@@ -152,13 +214,6 @@ final class Optimizer {
         try { return Integer.parseInt(r.trim()) > 0; } catch (Exception e) { return false; }
     }
 
-    static void googleTvOn(Context c) throws Exception {
-        List<String> cmds = new ArrayList<>();
-        cmds.add("pm enable " + GTV);
-        cmds.add("pm enable " + GTV_SETUP);
-        runBatch(c, cmds);
-        Adb.prefs(c).edit().putBoolean("dirty", true).apply();
-    }
 
     /** Состояние пакета на устройстве. */
     enum St { ENABLED, DISABLED, REMOVED, ABSENT }
