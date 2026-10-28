@@ -305,18 +305,23 @@ final class Optimizer {
             cmds.add("settings put secure enabled_accessibility_services " + Adb.q(acc));
             cmds.add("settings put secure accessibility_enabled 1");
         }
-        cmds.add("appops set " + me + " SYSTEM_ALERT_WINDOW allow");
-        cmds.add("appops set " + me + " REQUEST_INSTALL_PACKAGES allow");
-        cmds.add("appops set " + me + " APP_AUTO_START allow");
-        cmds.add("pm grant " + me + " android.permission.ACCESS_FINE_LOCATION");
-        cmds.add("pm grant " + me + " android.permission.WRITE_SECURE_SETTINGS");
+        // appops меняем только если ещё не «allow»: смена REQUEST_INSTALL_PACKAGES перезапускает Slauncher
+        String ops = Adb.sh(c, "appops get " + me);
+        if (!android.provider.Settings.canDrawOverlays(c)) cmds.add("appops set " + me + " SYSTEM_ALERT_WINDOW allow");
+        if (ops.contains("APP_AUTO_START") && !ops.matches("(?s).*APP_AUTO_START: allow.*"))
+            cmds.add("appops set " + me + " APP_AUTO_START allow");
+        if (c.checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) != android.content.pm.PackageManager.PERMISSION_GRANTED)
+            cmds.add("pm grant " + me + " android.permission.ACCESS_FINE_LOCATION");
+        if (c.checkSelfPermission("android.permission.WRITE_SECURE_SETTINGS") != android.content.pm.PackageManager.PERMISSION_GRANTED)
+            cmds.add("pm grant " + me + " android.permission.WRITE_SECURE_SETTINGS");
         if (!SetupActivity.dreamOn(c)) {
             cmds.add("settings put secure screensaver_components " + me + "/.NatureDream");
             cmds.add("settings put secure screensaver_enabled 1");
         }
+        if (!Updater.canInstall(c)) cmds.add("appops set " + me + " REQUEST_INSTALL_PACKAGES allow"); // последним
+        c.getSharedPreferences(SetupActivity.PREF, Context.MODE_PRIVATE).edit().putBoolean("tcl_autostart", true).commit();
         runBatch(c, cmds);
-        c.getSharedPreferences(SetupActivity.PREF, Context.MODE_PRIVATE).edit().putBoolean("tcl_autostart", true).apply();
-        return "ok";
+        return String.valueOf(cmds.size());
     }
 
     /** Тихое обновление: APK уже скачан в apk; ставим через оболочку и перезапускаем Slauncher. */

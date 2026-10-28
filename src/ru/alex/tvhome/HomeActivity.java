@@ -745,7 +745,7 @@ public class HomeActivity extends Activity {
         LinearLayout perm = new LinearLayout(this);
         View first = addAction(perm, "Включить всё", () -> bg(p, "настраиваю…", () -> Optimizer.fixAll(this), v -> {
             p.count.setText("доступ к системе ✓");
-            Toast.makeText(this, "Разрешения Slauncher включены ✓", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "0".equals(v) ? "Всё уже было включено ✓" : "Разрешения Slauncher включены ✓", Toast.LENGTH_LONG).show();
         }));
         section(p, "Разрешения Slauncher", "Кнопка «Домой», показ поверх фильма, заставка, автозапуск — всё сразу.", perm);
 
