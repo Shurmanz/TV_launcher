@@ -369,12 +369,22 @@ final class Optimizer {
         return String.valueOf(cmds.size());
     }
 
-    /** Тихое обновление: APK уже скачан в apk; ставим через оболочку и перезапускаем Slauncher. */
+    /**
+     * Тихое обновление: APK уже скачан; ставим через оболочку. Фоновый процесс adbd убивает при закрытии
+     * соединения (проверено на TCL), поэтому pm install выполняется синхронно — Slauncher при этом
+     * перезапускается системой, а BootReceiver по MY_PACKAGE_REPLACED открывает главный экран.
+     */
     static void silentInstall(Context c, File apk) throws Exception {
         String tmp = "/data/local/tmp/slauncher_update.apk";
         String r = Adb.sh(c, "cp " + apk.getPath() + " " + tmp + " && echo OK");
         if (!r.contains("OK")) throw new Exception("нет доступа к файлу обновления");
-        Adb.sh(c, "setsid nohup sh -c 'pm install -r " + tmp + "; rm -f " + tmp + "; am start -n "
-                + c.getPackageName() + "/.HomeActivity' >/dev/null 2>&1 &");
+        c.getSharedPreferences("update", Context.MODE_PRIVATE).edit().putBoolean("relaunch", true).commit();
+        String out;
+        try { out = Adb.sh(c, "pm install -r " + tmp + " 2>&1; rm -f " + tmp); }
+        catch (java.io.IOException e) { return; } // соединение оборвалось — установка уже идёт
+        if (!out.contains("Success")) {
+            c.getSharedPreferences("update", Context.MODE_PRIVATE).edit().remove("relaunch").commit();
+            throw new Exception(out.trim());
+        }
     }
 }

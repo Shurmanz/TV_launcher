@@ -18,6 +18,14 @@ public class BootReceiver extends BroadcastReceiver {
         if (Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())) // дошло — значит, автозапуск разрешён
             ctx.getSharedPreferences(SetupActivity.PREF, Context.MODE_PRIVATE).edit().putBoolean("tcl_autostart", true).apply();
         ensureService(ctx);
+        if (Intent.ACTION_MY_PACKAGE_REPLACED.equals(intent.getAction())
+                && ctx.getSharedPreferences("update", Context.MODE_PRIVATE).getBoolean("relaunch", false)) {
+            ctx.getSharedPreferences("update", Context.MODE_PRIVATE).edit().remove("relaunch").apply();
+            try {
+                ctx.startActivity(new Intent(ctx, HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                android.widget.Toast.makeText(ctx, "Slauncher обновлён ✓", android.widget.Toast.LENGTH_LONG).show();
+            } catch (Exception ignored) { }
+        }
     }
 
     static void ensureService(Context ctx) {
