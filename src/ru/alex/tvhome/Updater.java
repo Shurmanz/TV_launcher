@@ -66,6 +66,29 @@ final class Updater {
             }
         }).start();
     }
+    /** Через встроенный ADB: без экрана «Установить?»; при ошибке — обычный путь. */
+    static void silentInstall(Context ctx, Progress cb) {
+        Context c = ctx.getApplicationContext();
+        Handler ui = new Handler(Looper.getMainLooper());
+        new Thread(() -> {
+            try {
+                ui.post(() -> cb.onState("Скачиваю обновление…", false));
+                java.io.File f = new java.io.File(c.getExternalFilesDir(null), "update.apk");
+                f.delete();
+                Net.download(APK_URL + "?t=" + System.currentTimeMillis(), f);
+                if (f.length() < 100_000) throw new Exception("файл слишком маленький: " + f.length());
+                ui.post(() -> cb.onState("Устанавливаю — Slauncher перезапустится сам", false));
+                Optimizer.silentInstall(c, f);
+            } catch (Exception e) {
+                Net.log("silent update", e);
+                ui.post(() -> {
+                    if (canInstall(c)) downloadAndInstall(c, cb);
+                    else cb.onState("Не получилось: " + e.getMessage(), true);
+                });
+            }
+        }).start();
+    }
+
     private static final long DAY = 24 * 3600_000L;
 
     interface Callback { void onResult(boolean available, String name); }

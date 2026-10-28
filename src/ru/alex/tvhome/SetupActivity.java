@@ -94,6 +94,27 @@ public class SetupActivity extends Activity {
             getSharedPreferences(PREF, MODE_PRIVATE).edit().putBoolean("seen", true).apply();
             finish();
         });
+        TextView autoBtn = Panel.action(this, "Включить всё автоматически", () -> {
+            android.widget.Toast.makeText(this, Adb.known(this) ? "Настраиваю…"
+                    : "Если появится «Разрешить отладку?» — отметьте «Всегда» и нажмите OK", android.widget.Toast.LENGTH_LONG).show();
+            new Thread(() -> {
+                String err = null;
+                try { Adb.sh(this, "echo ok", 90_000); Optimizer.fixAll(this); }
+                catch (Exception e) {
+                    err = "сетевая отладка выключена".equals(e.getMessage())
+                            ? "Сначала включите «Отладка по сети»: Настройки → Система → Для разработчиков"
+                            : "Не получилось: " + e.getMessage();
+                }
+                final String fe = err;
+                runOnUiThread(() -> {
+                    android.widget.Toast.makeText(this, fe == null ? "Готово ✓" : fe, android.widget.Toast.LENGTH_LONG).show();
+                    build();
+                });
+            }).start();
+        });
+        LinearLayout.LayoutParams al = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        al.rightMargin = Ui.dp(this, 12);
+        bottom.addView(autoBtn, al);
         bottom.addView(doneBtn);
         LinearLayout.LayoutParams bl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         bl.topMargin = Ui.dp(this, 8);

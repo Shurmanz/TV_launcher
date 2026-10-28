@@ -564,14 +564,19 @@ public class HomeActivity extends Activity {
                 : " — определён автоматически"), city);
 
         LinearLayout perm = new LinearLayout(this);
-        addAction(perm, "Проверка разрешений", () -> { closePanel(); startActivity(new Intent(this, SetupActivity.class)); });
-        section(p, "Разрешения", "Кнопка «Домой», уведомления поверх фильма, заставка, обновления.", perm);
+        addAction(perm, "Оптимизация", this::openOptimizer);
+        addAction(perm, "Разрешения", () -> { closePanel(); startActivity(new Intent(this, SetupActivity.class)); });
+        section(p, "Система", "Чистка от рекламы, резервные копии, разрешения Slauncher.", perm);
         showPanel(p, first);
     }
 
     private void runUpdate(Panel p) {
         Updater.check(this, true, (avail, name) -> {
             if (!avail) { Toast.makeText(this, "Установлена последняя версия " + Updater.myName(this), Toast.LENGTH_LONG).show(); return; }
+            if (Adb.known(this)) { // тихо, без экрана подтверждения
+                Updater.silentInstall(this, (text, done) -> Toast.makeText(this, text, Toast.LENGTH_LONG).show());
+                return;
+            }
             if (!Updater.canInstall(this)) {
                 Toast.makeText(this, "Разрешите Slauncher устанавливать приложения", Toast.LENGTH_LONG).show();
                 try {
@@ -642,6 +647,296 @@ public class HomeActivity extends Activity {
         hs.addView(results);
         p.body.addView(hs);
         showPanel(p, q);
+    }
+
+    // ---------- оптимизация (встроенный ADB) ----------
+
+    private Optimizer.State optState;
+    private boolean backupAsked; // в этом заходе уже спросили про резервную копию
+
+    private interface Job<T> { T run() throws Exception; }
+    private interface Ok<T> { void ok(T v); }
+
+    /** Фоновая работа через ADB с подписью в заголовке панели. */
+    private <T> void bg(Panel p, String busy, Job<T> job, Ok<T> ok) {
+        if (p != null && busy != null) p.count.setText(busy);
+        new Thread(() -> {
+            try {
+                T v = job.run();
+                runOnUiThread(() -> ok.ok(v));
+            } catch (Exception e) {
+                Net.log("optimizer", e);
+                runOnUiThread(() -> {
+                    Toast.makeText(this, "Не получилось: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                    if (p != null && panel == p) p.count.setText("");
+                });
+            }
+        }).start();
+    }
+
+    private void openOptimizer() {
+        backupAsked = false;
+        Panel p = new Panel(this, "Оптимизация", null);
+        p.count.setText("проверяю доступ…");
+        LinearLayout row = new LinearLayout(this);
+        View close = addAction(row, "Закрыть", this::closePanel);
+        p.body.addView(row);
+        showPanel(p, close);
+        new Thread(() -> {
+            Optimizer.State s = null;
+            String err = null;
+            try { s = Optimizer.read(this); }
+            catch (Exception e) { err = e instanceof Adb.NoAccess ? e.getMessage() : "ошибка: " + e.getMessage(); Net.log("adb", e); }
+            final Optimizer.State fs = s;
+            final String fe = err;
+            runOnUiThread(() -> {
+                if (panel != p) return;
+                if (fs != null) { optState = fs; buildOptimizer(null); }
+                else buildOptConnect(fe);
+            });
+        }).start();
+    }
+
+    private void buildOptConnect(String err) {
+        boolean off = "сетевая отладка выключена".equals(err);
+        Panel p = new Panel(this, "Оптимизация",
+                "Slauncher сам отключит рекламу и лишние приложения, настроит разрешения и будет обновляться без подтверждений.");
+        p.count.setText("нет доступа");
+        LinearLayout acts = new LinearLayout(this);
+        View first;
+        if (off) {
+            first = addAction(acts, "Для разработчиков", () -> openSettings(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS));
+            addAction(acts, "Проверить снова", this::openOptimizer);
+        } else {
+            first = addAction(acts, "Подключить", () -> {
+                p.count.setText("подтвердите на экране…");
+                bg(p, null, () -> Adb.sh(this, "echo ok", 90_000), v -> {
+                    Toast.makeText(this, "Доступ получен ✓", Toast.LENGTH_SHORT).show();
+                    openOptimizer();
+                });
+            });
+        }
+        addAction(acts, "Закрыть", this::closePanel);
+        section(p, "Доступ к системе", off
+                ? "Сетевая отладка выключена. Включите: Настройки → Система → Для разработчиков → «Отладка по сети» "
+                + "(режим разработчика: Об устройстве → 7 раз нажать «Сборка»)."
+                : "Нажмите «Подключить». На экране появится «Разрешить отладку?» — отметьте «Всегда разрешать» и нажмите OK.",
+                acts);
+        showPanel(p, first);
+    }
+
+    private List<Optimizer.Item> present(boolean recommendedEnabledOnly) {
+        List<Optimizer.Item> r = new ArrayList<>();
+        for (Optimizer.Item i : Optimizer.CATALOG) {
+            Optimizer.St s = optState.of(i.pkg);
+            if (s == Optimizer.St.ABSENT) continue;
+            if (recommendedEnabledOnly && !(i.recommended && s == Optimizer.St.ENABLED)) continue;
+            boolean dup = false;
+            for (Optimizer.Item x : r) if (x.pkg.equals(i.pkg)) dup = true;
+            if (!dup) r.add(i);
+        }
+        return r;
+    }
+
+    private void buildOptimizer(String focus) {
+        Panel p = new Panel(this, "Оптимизация", null);
+        p.count.setText("доступ к системе ✓");
+
+        LinearLayout perm = new LinearLayout(this);
+        View first = addAction(perm, "Включить всё", () -> bg(p, "настраиваю…", () -> Optimizer.fixAll(this), v -> {
+            p.count.setText("доступ к системе ✓");
+            Toast.makeText(this, "Разрешения Slauncher включены ✓", Toast.LENGTH_LONG).show();
+        }));
+        section(p, "Разрешения Slauncher", "Кнопка «Домой», показ поверх фильма, заставка, автозапуск — всё сразу.", perm);
+
+        List<Optimizer.Item> todo = present(true);
+        int off = 0;
+        for (Optimizer.Item i : present(false)) if (optState.of(i.pkg) != Optimizer.St.ENABLED) off++;
+        LinearLayout apps = new LinearLayout(this);
+        View list = addAction(apps, "Выбрать…", () -> openOptList(null));
+        if (!todo.isEmpty()) addAction(apps, "Отключить лишнее (" + todo.size() + ")", () -> withBackup(() ->
+                bg(p, "отключаю…", () -> {
+                    List<String> cmds = new ArrayList<>();
+                    for (Optimizer.Item i : todo) cmds.add("pm disable-user --user 0 " + i.pkg);
+                    Optimizer.runBatch(this, cmds);
+                    Adb.prefs(this).edit().putBoolean("dirty", true).apply();
+                    return Optimizer.read(this);
+                }, s -> { optState = s; buildOptimizer(null); Toast.makeText(this, "Отключено: " + todo.size(), Toast.LENGTH_LONG).show(); }),
+                this::buildOptimizerAgain));
+        section(p, "Реклама и лишние приложения", (todo.isEmpty() ? "Всё лишнее уже отключено" : "Можно отключить: " + todo.size())
+                + "  ·  отключено: " + off + "  ·  сторонних приложений: " + optState.third.size(), apps);
+
+        String a = optState.anim;
+        boolean fast = a.equals("0.5") || a.equals("0.5x");
+        LinearLayout anim = new LinearLayout(this);
+        addAction(anim, fast ? "Сделать обычной" : "Ускорить", () -> bg(p, "меняю…", () -> {
+            Optimizer.setAnim(this, fast ? "1.0" : "0.5");
+            return Optimizer.read(this);
+        }, s -> { optState = s; buildOptimizer(null); }));
+        section(p, "Анимации", fast ? "Ускорены (0.5×): меню открываются быстрее." : "Обычная скорость. Можно ускорить вдвое.", anim);
+
+        String last = Optimizer.lastBackup(this);
+        LinearLayout bk = new LinearLayout(this);
+        addAction(bk, "Сохранить сейчас", () -> bg(p, "сохраняю копию…", () -> Optimizer.backup(this, Optimizer.read(this), null),
+                d -> { Toast.makeText(this, "Копия сохранена ✓", Toast.LENGTH_LONG).show(); buildOptimizer(null); }));
+        addAction(bk, "Восстановить…", this::openRestore);
+        section(p, "Резервные копии", last.isEmpty() ? "Ещё не делалась. Перед изменениями Slauncher предложит её сделать."
+                : "Последняя: " + Optimizer.pretty(last) + ". Хранятся в памяти ТВ: Slauncher/backups.", bk);
+        showPanel(p, focus != null ? p.findViewWithTag(focus) : (todo.isEmpty() ? list : first));
+    }
+
+    private void buildOptimizerAgain() { buildOptimizer(null); }
+
+    /** Перед первым изменением в этом заходе — предложить резервную копию. */
+    private void withBackup(Runnable action, Runnable back) {
+        if (backupAsked) { action.run(); return; }
+        Panel p = new Panel(this, "Резервная копия",
+                "Перед изменениями сохранить, какие приложения сейчас включены и отключены? Из копии всё возвращается одной кнопкой: "
+                        + "Оптимизация → Восстановить.");
+        LinearLayout row = new LinearLayout(this);
+        View first = addAction(row, "Сохранить и продолжить", () -> bg(p, "сохраняю копию…",
+                () -> Optimizer.backup(this, Optimizer.read(this), null), d -> {
+                    backupAsked = true;
+                    Toast.makeText(this, "Копия сохранена ✓", Toast.LENGTH_SHORT).show();
+                    action.run();
+                }));
+        addAction(row, "Без копии", () -> { backupAsked = true; action.run(); });
+        addAction(row, "Отмена", back);
+        p.body.addView(row);
+        showPanel(p, first);
+    }
+
+    private void openOptList(String focusPkg) {
+        Panel p = new Panel(this, "Приложения и сервисы",
+                "Системные только отключаются — их можно включить обратно. Сторонние удаляются, установочный файл сохраняется в копию.");
+        ScrollView sv = new ScrollView(this);
+        sv.setVerticalScrollBarEnabled(false);
+        sv.setClipToPadding(false);
+        sv.setFadingEdgeLength(dp(30));
+        sv.setVerticalFadingEdgeEnabled(true);
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setPadding(dp(4), dp(4), dp(4), dp(8));
+        sv.addView(col);
+        View first = null, focus = null;
+        String group = null;
+        int off = 0;
+        for (Optimizer.Item i : present(false)) {
+            if (!i.group.equals(group)) { group = i.group; col.addView(listHead(group)); }
+            Optimizer.St s = optState.of(i.pkg);
+            if (s != Optimizer.St.ENABLED) off++;
+            View b = listRow(col, i.name, i.pkg, s, false);
+            if (first == null) first = b;
+            if (i.pkg.equals(focusPkg)) focus = b;
+        }
+        if (!optState.third.isEmpty()) {
+            col.addView(listHead("Сторонние приложения"));
+            android.content.pm.PackageManager pm = getPackageManager();
+            List<String[]> third = new ArrayList<>();
+            for (String pkg : optState.third) {
+                String label = pkg;
+                try { label = pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString(); } catch (Exception ignored) { }
+                third.add(new String[]{label, pkg});
+            }
+            java.util.Collections.sort(third, (x, y) -> x[0].compareToIgnoreCase(y[0]));
+            for (String[] t : third) {
+                View b = listRow(col, t[0], t[1], Optimizer.St.ENABLED, true);
+                if (first == null) first = b;
+                if (t[1].equals(focusPkg)) focus = b;
+            }
+        }
+        p.count.setText("отключено: " + off);
+        p.body.addView(sv, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(290)));
+        LinearLayout bottom = new LinearLayout(this);
+        bottom.setGravity(Gravity.END);
+        addAction(bottom, "Готово", () -> buildOptimizer(null));
+        LinearLayout.LayoutParams bl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        bl.topMargin = dp(12);
+        p.body.addView(bottom, bl);
+        showPanel(p, focus != null ? focus : first);
+    }
+
+    private TextView listHead(String text) {
+        TextView h = Ui.text(this, 12, 600, 0x80FFFFFF);
+        h.setShadowLayer(0, 0, 0, 0);
+        h.setLetterSpacing(0.12f);
+        h.setText(text.toUpperCase(new Locale("ru")));
+        h.setPadding(0, dp(12), 0, dp(4));
+        return h;
+    }
+
+    private View listRow(LinearLayout col, String name, String pkg, Optimizer.St s, boolean third) {
+        LinearLayout r = new LinearLayout(this);
+        r.setGravity(Gravity.CENTER_VERTICAL);
+        r.setPadding(0, dp(5), 0, dp(5));
+        LinearLayout txt = new LinearLayout(this);
+        txt.setOrientation(LinearLayout.VERTICAL);
+        TextView n = infoLine(name);
+        n.setTextSize(15);
+        txt.addView(n);
+        TextView pk = Ui.text(this, 11, 400, 0x66FFFFFF);
+        pk.setShadowLayer(0, 0, 0, 0);
+        pk.setText(pkg);
+        txt.addView(pk);
+        r.addView(txt, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView st = Ui.text(this, 13, 500, s == Optimizer.St.ENABLED ? 0xFF30D158 : 0x99FFFFFF);
+        st.setShadowLayer(0, 0, 0, 0);
+        st.setText(s == Optimizer.St.ENABLED ? (third ? "установлено" : "включено") : s == Optimizer.St.DISABLED ? "отключено" : "удалено");
+        r.addView(st, new LinearLayout.LayoutParams(dp(110), ViewGroup.LayoutParams.WRAP_CONTENT));
+        LinearLayout acts = new LinearLayout(this);
+        View b;
+        if (third) {
+            b = addAction(acts, "Удалить", () -> confirmUninstall(name, pkg));
+        } else if (s == Optimizer.St.ENABLED) {
+            b = addAction(acts, "Отключить", () -> withBackup(() -> listOp(pkg, () -> Optimizer.disable(this, pkg)), () -> openOptList(pkg)));
+        } else {
+            b = addAction(acts, s == Optimizer.St.REMOVED ? "Вернуть" : "Включить", () -> listOp(pkg, () -> Optimizer.enable(this, pkg, s)));
+        }
+        b.setTag(pkg);
+        r.addView(acts, new LinearLayout.LayoutParams(dp(150), ViewGroup.LayoutParams.WRAP_CONTENT));
+        col.addView(r);
+        return b;
+    }
+
+    private interface Act { void run() throws Exception; }
+
+    private void listOp(String pkg, Act act) {
+        Panel p = panel instanceof Panel ? (Panel) panel : null;
+        bg(p, "выполняю…", () -> { act.run(); return Optimizer.read(this); }, s -> { optState = s; openOptList(pkg); });
+    }
+
+    private void confirmUninstall(String name, String pkg) {
+        Panel p = new Panel(this, "Удалить «" + name + "»?",
+                "Установочный файл сохранится в резервной копии — вернуть: Оптимизация → Восстановить. Данные приложения (вход, настройки) не сохраняются.");
+        LinearLayout row = new LinearLayout(this);
+        View cancel = addAction(row, "Отмена", () -> openOptList(pkg));
+        addAction(row, "Удалить", () -> withBackup(() -> listOp(null, () -> Optimizer.uninstall(this, pkg)), () -> openOptList(pkg)));
+        p.body.addView(row);
+        showPanel(p, cancel);
+    }
+
+    private void openRestore() {
+        Panel p = new Panel(this, "Восстановить из копии",
+                "Приложения вернутся в состояние на момент копии; удалённые сторонние — установятся заново. Slauncher не трогается.");
+        LinearLayout row = new LinearLayout(this);
+        View cancel = addAction(row, "Отмена", () -> buildOptimizer(null));
+        p.body.addView(row);
+        showPanel(p, cancel);
+        bg(p, "ищу копии…", () -> Optimizer.listBackups(this), list -> {
+            if (panel != p) return;
+            p.count.setText(list.isEmpty() ? "копий нет" : "копий: " + list.size());
+            LinearLayout strip = p.strip();
+            View first = null;
+            for (int i = 0; i < Math.min(8, list.size()); i++) {
+                String name = list.get(i);
+                View b = addAction(strip, Optimizer.pretty(name), () -> bg(p, "восстанавливаю…", () -> Optimizer.restore(this, name), n -> {
+                    Toast.makeText(this, n == 0 ? "Всё уже как в копии" : "Готово, изменений: " + n, Toast.LENGTH_LONG).show();
+                    openOptimizer();
+                }));
+                if (first == null) first = b;
+            }
+            if (first != null) first.requestFocus();
+        });
     }
 
     private void openHaSetup() {
