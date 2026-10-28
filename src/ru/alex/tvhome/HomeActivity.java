@@ -50,6 +50,15 @@ public class HomeActivity extends Activity {
     private ClockView clock;
     private TextView weatherBtn, netLabel, moveHint, tip;
     private LinearLayout updBar;
+    private TextView sleepInfo;
+    private final Runnable sleepTick = new Runnable() {
+        @Override public void run() {
+            int m = Comfort.sleepLeftMin(HomeActivity.this);
+            sleepInfo.setText("⏾ выключение через " + m + " мин");
+            sleepInfo.setVisibility(m > 0 ? View.VISIBLE : View.GONE);
+            if (m > 0 && resumed) root.postDelayed(this, 30_000);
+        }
+    };
     private Icon settingsIcon;
     private View inputsChip;
     private HaCorner haCorner;
@@ -96,7 +105,10 @@ public class HomeActivity extends Activity {
         haCorner.refresh();
         Updater.check(this, false, (avail, name) -> { settingsIcon.setDot(avail); updateTip(); });
         HaClient.ensure(this);
-        updateTip();
+        updateTip(true);
+        root.removeCallbacks(sleepTick);
+        sleepTick.run();
+        if (panel == null && Comfort.shouldShowWhatsNew(this)) root.postDelayed(this::openWhatsNew, 800);
         if (!setupOffered && !getSharedPreferences(SetupActivity.PREF, MODE_PRIVATE).getBoolean("seen", false)
                 && SetupActivity.needed(this)) {
             setupOffered = true; // мастер — один раз за запуск, пока не нажали «Готово»
@@ -105,6 +117,7 @@ public class HomeActivity extends Activity {
     }
 
     private static boolean setupOffered;
+    private long lastHomeIntent;
 
     @Override
     protected void onPause() {
@@ -119,6 +132,13 @@ public class HomeActivity extends Activity {
     protected void onNewIntent(Intent intent) {
         setIntent(intent);
         super.onNewIntent(intent);
+        // «Домой» пришёл прямо к нам (Slauncher — системный главный экран): второе нажатие подряд — в прошлое приложение
+        if (!intent.getBooleanExtra("from_service", false) && Intent.ACTION_MAIN.equals(intent.getAction())) {
+            long now = android.os.SystemClock.elapsedRealtime();
+            if (lastHomeIntent != 0 && now - lastHomeIntent > 250 && now - lastHomeIntent < 1500
+                    && Comfort.open(this, Comfort.lastApp(this))) { lastHomeIntent = 0; Comfort.tipDone(this, "dbl"); return; }
+            lastHomeIntent = now;
+        }
         closePanel();
         if (moving != null) endMove();
         focusFirstTile();
@@ -227,7 +247,11 @@ public class HomeActivity extends Activity {
         chips.addView(net);
         settingsIcon = new Icon(Icon.GEAR, 0xFFFFFFFF);
         chips.addView(chip(settingsIcon, "Настройки", v -> openGearMenu(),
-                v -> { openLibrary(null); return true; }));
+                v -> { openSleep(); return true; }));
+        sleepInfo = Ui.text(this, 14, 500, 0xE6FFFFFF);
+        sleepInfo.setPadding(dp(4), dp(10), dp(4), dp(10));
+        sleepInfo.setVisibility(View.GONE);
+        chips.addView(sleepInfo);
         LinearLayout.LayoutParams chl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         chl.topMargin = dp(12);
         left.addView(chips, chl);
@@ -300,7 +324,11 @@ public class HomeActivity extends Activity {
     }
 
     /** Внизу экрана: напоминание про кнопку «Домой» (важнее) или подсказка, как добавить приложения. */
-    private void updateTip() {
+    private void updateTip() { updateTip(false); }
+
+    private String tipText;
+
+    private void updateTip(boolean count) {
         if (tip == null) return;
         boolean showUpd = SetupActivity.homeServiceOn(this) && Updater.available(this) && !Updater.bannerDismissed(this)
                 && moving == null;
@@ -322,8 +350,8 @@ public class HomeActivity extends Activity {
             tip.setTextColor(0xFFFFFFFF);
             tip.setOnClickListener(v -> startActivity(new Intent(this, SetupActivity.class)));
             tip.setVisibility(View.VISIBLE);
-        } else if (!getSharedPreferences("ui", MODE_PRIVATE).getBoolean("lib_used", false)) {
-            tip.setText("Добавить приложения и поменять порядок — долгое нажатие ОК на любой плитке");
+        } else if ((tipText = Comfort.tip(this, count)) != null) {
+            tip.setText(tipText);
             tip.setFocusable(false);
             tip.setOnClickListener(null);
             tip.setOnFocusChangeListener(null);
@@ -628,9 +656,10 @@ public class HomeActivity extends Activity {
                 : " — определён автоматически"), city);
 
         LinearLayout perm = new LinearLayout(this);
+        addAction(perm, "Удобство", this::openComfort);
         addAction(perm, "Оптимизация", this::openOptimizer);
         addAction(perm, "Разрешения", () -> { closePanel(); startActivity(new Intent(this, SetupActivity.class)); });
-        section(p, "Система", "Чистка от рекламы, резервные копии, разрешения Slauncher.", perm);
+        section(p, "Система", "Таймер сна, память, перенос; чистка от рекламы; разрешения.", perm);
         showPanel(p, first);
     }
 
@@ -863,7 +892,6 @@ public class HomeActivity extends Activity {
         addAction(bk, "Сохранить сейчас", () -> bg(p, "сохраняю копию…", () -> Optimizer.backup(this, Optimizer.read(this), null),
                 d -> { Toast.makeText(this, "Копия сохранена ✓", Toast.LENGTH_LONG).show(); buildOptimizer(null); }));
         addAction(bk, "Восстановить…", this::openRestore);
-        addAction(bk, "Удалить Slauncher…", this::confirmUninstallAll);
         section(p, "Резервные копии", last.isEmpty() ? "Ещё не делалась — Slauncher предложит её перед изменениями."
                 : "Последняя: " + Optimizer.pretty(last) + ". Папка Slauncher/backups.", bk);
         showPanel(p, todo.isEmpty() ? list : first);
@@ -873,9 +901,9 @@ public class HomeActivity extends Activity {
 
     /** «Удалить Slauncher и вернуть всё как было»: Google TV, приложения из самой первой копии, разрешения, сам Slauncher. */
     private void confirmUninstallAll() {
-        Panel p = new Panel(this, "Удалить Slauncher?", "Ищу самую первую резервную копию…");
+        Panel p = new Panel(this, "Вернуть как было?", "Ищу самую первую резервную копию…");
         LinearLayout row = new LinearLayout(this);
-        View cancel = addAction(row, "Отмена", this::buildOptimizerAgain);
+        View cancel = addAction(row, "Отмена", this::openComfort);
         p.body.addView(row);
         showPanel(p, cancel);
         bg(p, null, () -> Optimizer.listBackups(this), list -> {
@@ -1064,6 +1092,191 @@ public class HomeActivity extends Activity {
         });
     }
 
+    // ---------- удобство ----------
+
+    private void openComfort() {
+        Panel p = new Panel(this, "Удобство", null);
+        boolean adb = Adb.known(this);
+
+        LinearLayout sl = new LinearLayout(this);
+        View first = addAction(sl, "Таймер сна", this::openSleep);
+        addAction(sl, "Освободить память", () -> bg(p, "освобождаю…", () -> Comfort.freeMemory(this), r -> {
+            long gain = Math.max(0, r[1] - r[0]);
+            Toast.makeText(this, (gain > 0 ? "Освобождено " + Comfort.mb(gain) + ". " : "")
+                    + "Свободно " + Comfort.gb(r[1]) + " из " + Comfort.gb(r[2]), Toast.LENGTH_LONG).show();
+            openComfort();
+        }));
+        int left = Comfort.sleepLeftMin(this);
+        section(p, "Сон и память", (left > 0 ? "Выключение через " + left + " мин.  " : "")
+                + "Свободно " + Comfort.gb(Comfort.availMem(this)) + " из " + Comfort.gb(Comfort.totalMem(this)) + ".", sl);
+
+        LinearLayout st = new LinearLayout(this);
+        addAction(st, "Выбрать…", this::openStartPicker);
+        String sp = Comfort.startPkg(this);
+        section(p, "При включении открывать", sp.isEmpty() ? "Главный экран Slauncher." : label(sp) + " (кнопка «Домой» — в Slauncher).", st);
+
+        LinearLayout tr = new LinearLayout(this);
+        addAction(tr, "Сохранить", () -> bg(p, "сохраняю…", () -> Transfer.save(this), n -> {
+            Toast.makeText(this, "Сохранено: " + n + (Adb.known(this) ? " (Slauncher/settings)" : ""), Toast.LENGTH_LONG).show();
+            openComfort();
+        }));
+        addAction(tr, "Загрузить…", this::openTransferLoad);
+        addAction(tr, "С телефона", this::openTransferPhone);
+        section(p, "Перенос настроек", "Плитки, город, Home Assistant, отключённые приложения — файлом на другой ТВ.", tr);
+
+        LinearLayout back = new LinearLayout(this);
+        addAction(back, "Вернуть как было…", () -> {
+            if (Adb.known(this)) confirmUninstallAll();
+            else Toast.makeText(this, "Нужна «Оптимизация» → «Подключить». Или: Настройки ТВ → Приложения → Slauncher → Удалить",
+                    Toast.LENGTH_LONG).show();
+        });
+        section(p, "Вернуть как было", "Убрать Slauncher и все его изменения с телевизора.", back);
+        if (!adb) p.count.setText("часть функций — после «Оптимизация → Подключить»");
+        showPanel(p, first);
+    }
+
+    private String label(String pkg) {
+        try { return getPackageManager().getApplicationLabel(getPackageManager().getApplicationInfo(pkg, 0)).toString(); }
+        catch (Exception e) { return pkg; }
+    }
+
+    private void openSleep() {
+        Comfort.tipDone(this, "sleep");
+        updateTip();
+        Panel p = new Panel(this, "Таймер сна", Adb.known(this)
+                ? "Телевизор уйдёт в дежурный режим. За минуту до этого появится предупреждение поверх фильма."
+                : "Для таймера нужна «Оптимизация»: Настройки Slauncher → Система → Оптимизация → «Подключить».");
+        int left = Comfort.sleepLeftMin(this);
+        if (left > 0) p.count.setText("выключение через " + left + " мин");
+        LinearLayout row = new LinearLayout(this);
+        View first = null;
+        if (Adb.known(this)) {
+            for (int m : new int[]{15, 30, 60, 90, 120}) {
+                View b = addAction(row, m + " мин", () -> {
+                    Comfort.setSleep(this, m);
+                    closePanel();
+                    Toast.makeText(this, "Телевизор выключится через " + m + " мин", Toast.LENGTH_LONG).show();
+                    root.removeCallbacks(sleepTick);
+                    sleepTick.run();
+                });
+                if (first == null) first = b;
+            }
+            if (left > 0) first = addAction(row, "Отменить", () -> {
+                Comfort.setSleep(this, 0);
+                closePanel();
+                sleepTick.run();
+                Toast.makeText(this, "Таймер сна отменён", Toast.LENGTH_SHORT).show();
+            });
+        } else {
+            first = addAction(row, "Открыть оптимизацию", this::openOptimizer);
+        }
+        p.body.addView(row);
+        showPanel(p, first);
+    }
+
+    private void openStartPicker() {
+        Panel p = new Panel(this, "При включении открывать", "Работает после перезагрузки и после выхода из дежурного режима.");
+        LinearLayout strip = p.strip();
+        String cur = Comfort.startPkg(this);
+        View first = addAction(strip, (cur.isEmpty() ? "✓ " : "") + "Главный экран", () -> { Comfort.setStartPkg(this, ""); openComfort(); });
+        List<Apps.App> list = new ArrayList<>(dock);
+        for (Apps.App a : allApps) if (!list.contains(a)) list.add(a);
+        for (Apps.App a : list) {
+            if (Apps.SETTINGS.equals(a.pkg)) continue;
+            View b = addAction(strip, (a.pkg.equals(cur) ? "✓ " : "") + a.label, () -> { Comfort.setStartPkg(this, a.pkg); openComfort(); });
+            if (a.pkg.equals(cur)) first = b;
+        }
+        showPanel(p, first);
+    }
+
+    private void openTransferLoad() {
+        Panel p = new Panel(this, "Загрузить настройки", "Файлы из папки Slauncher/settings на этом телевизоре.");
+        LinearLayout strip = p.strip();
+        View cancel = addAction(strip, "Отмена", this::openComfort);
+        showPanel(p, cancel);
+        bg(p, "ищу файлы…", () -> Transfer.list(this), names -> {
+            if (panel != p) return;
+            p.count.setText(names.isEmpty() ? "файлов нет — сохраните или загрузите с телефона" : "файлов: " + names.size());
+            View first = null;
+            for (int i = 0; i < Math.min(8, names.size()); i++) {
+                String n = names.get(i);
+                View b = addAction(strip, Transfer.pretty(n), () -> bg(p, "загружаю…",
+                        () -> Transfer.apply(this, Transfer.read(this, n)), this::afterImport));
+                if (first == null) first = b;
+            }
+            if (first != null) first.requestFocus();
+        });
+    }
+
+    private void openTransferPhone() {
+        Panel p = new Panel(this, "Перенос с телефона", "Откройте на телефоне в той же Wi‑Fi сети:");
+        TextView addr = Ui.text(this, 34, 500, 0xFFFFFFFF);
+        addr.setShadowLayer(0, 0, 0, 0);
+        p.body.addView(addr);
+        TextView how = Ui.text(this, 15, 400, 0xB3FFFFFF);
+        how.setShadowLayer(0, 0, 0, 0);
+        how.setText("Там можно скачать настройки этого телевизора или загрузить файл с другого. Страница работает, пока открыт этот экран.");
+        LinearLayout.LayoutParams hl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        hl.topMargin = dp(14);
+        hl.bottomMargin = dp(16);
+        p.body.addView(how, hl);
+        LinearLayout row = new LinearLayout(this);
+        View close = addAction(row, "Закрыть", this::closePanel);
+        p.body.addView(row);
+        showPanel(p, close); // закрывает прошлую панель — сервер запускаем уже после
+        String pin = Transfer.start(this, this::afterImport);
+        addr.setText(pin == null ? "Не удалось открыть страницу" : "http://" + HaSetupServer.ip() + ":" + Transfer.PORT + "/" + pin);
+    }
+
+    /** После загрузки файла: плитки/город/старт уже применены; предложить отключить те же приложения. */
+    private void afterImport(Transfer.Applied a) {
+        reloadApps();
+        wall.refreshWeather();
+        haCorner.refresh();
+        int n = a.toDisable.size();
+        boolean more = n > 0 || a.anim != null || a.googleTvOff;
+        Panel p = new Panel(this, "Настройки загружены ✓", "Плитки, город, стартовое приложение и Home Assistant применены"
+                + (HaConfig.url(this).isEmpty() || HaConfig.enabled(this) ? "." : " — токен Home Assistant введите заново: Home Assistant → «Настроить с телефона».")
+                + (more ? "\nНа том телевизоре ещё было: " + (n > 0 ? "отключено приложений — " + n + "; " : "")
+                + (a.anim != null ? "анимации " + a.anim + "×; " : "") + (a.googleTvOff ? "Google TV отключён" : "") : ""));
+        LinearLayout row = new LinearLayout(this);
+        View first;
+        if (more && Adb.known(this)) {
+            first = addAction(row, "Сделать так же", () -> withBackup(() -> bg(p, "применяю…", () -> {
+                List<String> cmds = new ArrayList<>();
+                for (String pkg : a.toDisable) cmds.add("pm disable-user --user 0 " + pkg);
+                if (a.anim != null) cmds.add(Optimizer.animCmd(a.anim));
+                Optimizer.runBatch(this, cmds);
+                Adb.prefs(this).edit().putBoolean("dirty", true).apply();
+                return Optimizer.read(this);
+            }, s -> {
+                optState = s;
+                if (a.googleTvOff) Toast.makeText(this, "Google TV — отдельно: Оптимизация → «Отключить Google TV»", Toast.LENGTH_LONG).show();
+                buildOptimizer(null);
+            }), this::closePanel));
+            addAction(row, "Не надо", this::closePanel);
+        } else {
+            first = addAction(row, "Готово", this::closePanel);
+            if (more) p.count.setText("отключить так же — после «Оптимизация → Подключить»");
+        }
+        p.body.addView(row);
+        showPanel(p, first);
+    }
+
+    private void openWhatsNew() {
+        if (panel != null) return;
+        Panel p = new Panel(this, "Что нового в Slauncher " + Updater.myName(this), null);
+        TextView t = infoLine(Comfort.WHATS_NEW);
+        t.setLineSpacing(dp(4), 1f);
+        p.body.addView(t);
+        LinearLayout row = new LinearLayout(this);
+        View ok = addAction(row, "Понятно", this::closePanel);
+        LinearLayout.LayoutParams rl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rl.topMargin = dp(18);
+        p.body.addView(row, rl);
+        showPanel(p, ok);
+    }
+
     private void openHaSetup() {
         Panel p = new Panel(this, "Home Assistant", "Откройте на телефоне в той же Wi‑Fi сети:");
         TextView addr = Ui.text(this, 34, 500, 0xFFFFFFFF);
@@ -1204,6 +1417,7 @@ public class HomeActivity extends Activity {
 
     private void closePanel() {
         HaSetupServer.stop();
+        Transfer.stop();
         if (panel == null) return;
         final View o = panel;
         panel = null;

@@ -42,12 +42,44 @@ public class HomeKeyService extends AccessibilityService {
         if (homes == null) {
             // ушли в любое другое приложение — «окно голосового поиска» закончилось
             if (!pkg.equals("android") && !pkg.startsWith("com.android.systemui")) lastVoice = 0;
+            noteApp(pkg);
             return;
         }
         if (cls.contains("LauncherDeepLink")) { lastVoice = now; return; } // переход из Ассистента
         if (!homes.contains(cls) && !(pkg.equals(STOCK) && cls.contains("HomeActivity"))) return;
         if (lastVoice != 0 && now - lastVoice < VOICE_GRACE_MS) return; // показываются результаты поиска
+        // второе «Домой» вскоре после первого — вернуться в прошлое приложение
+        if (lastStock != 0 && now - lastStock > 250 && now - lastStock < 1500) {
+            lastStock = 0;
+            if (Comfort.open(this, Comfort.lastApp(this))) return;
+        } else if (now - lastStock >= 250) lastStock = now;
         openHome(now);
+    }
+
+    private long lastStock;
+
+    /** Запомнить приложение на экране (для двойного «Домой»): только то, что можно запустить, не мы и не системное. */
+    private void noteApp(String pkg) {
+        if (pkg.equals(getPackageName()) || pkg.equals("android") || pkg.startsWith("com.android.systemui")
+                || pkg.equals("com.google.android.inputmethod.latin") || pkg.contains("inputmethod")) return;
+        if (pkg.equals(Comfort.lastApp)) return;
+        if (Comfort.launchIntent(this, pkg) != null) Comfort.noteApp(this, pkg);
+    }
+
+    /** Экран включился после дежурного режима — открыть стартовое приложение, если выбрано. */
+    private long screenOffAt;
+    private final android.content.BroadcastReceiver screen = new android.content.BroadcastReceiver() {
+        @Override public void onReceive(android.content.Context c, Intent i) {
+            if (Intent.ACTION_SCREEN_OFF.equals(i.getAction())) { screenOffAt = SystemClock.elapsedRealtime(); return; }
+            if (screenOffAt != 0 && SystemClock.elapsedRealtime() - screenOffAt > 60_000L) openStart(1500);
+            screenOffAt = 0;
+        }
+    };
+
+    private void openStart(long delay) {
+        String pkg = Comfort.startPkg(this);
+        if (pkg.isEmpty()) return;
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> Comfort.open(this, pkg), delay);
     }
 
     /**
@@ -61,7 +93,11 @@ public class HomeKeyService extends AccessibilityService {
         if (SystemClock.elapsedRealtime() < 10 * 60_000L) {
             new android.os.Handler(android.os.Looper.getMainLooper())
                     .postDelayed(() -> openHome(SystemClock.elapsedRealtime()), 1500);
+            openStart(3500); // после загрузки — любимое приложение поверх главного экрана
         }
+        android.content.IntentFilter f = new android.content.IntentFilter(Intent.ACTION_SCREEN_OFF);
+        f.addAction(Intent.ACTION_SCREEN_ON);
+        try { registerReceiver(screen, f); } catch (Exception ignored) { }
     }
 
     /** Не наши «главные экраны»: пакет → классы их домашних активити. Google TV, Android TV Home, PatchWall Xiaomi и т.д. */
@@ -97,7 +133,14 @@ public class HomeKeyService extends AccessibilityService {
         Intent i = new Intent(this, HomeActivity.class);
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP
                 | Intent.FLAG_ACTIVITY_NO_ANIMATION);
+        i.putExtra("from_service", true); // двойное «Домой» в этом случае считает служба
         startActivity(i);
+    }
+
+    @Override
+    public void onDestroy() {
+        try { unregisterReceiver(screen); } catch (Exception ignored) { }
+        super.onDestroy();
     }
 
     @Override
