@@ -39,7 +39,7 @@ final class SkyView extends View {
     private int blobLight;
     private final android.graphics.Path ray = new android.graphics.Path();
     private final Random cloudRnd = new Random();
-    private final Paint cutP = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final android.graphics.Path moonPath = new android.graphics.Path();
     private int[] pal = new int[3];
     private int blobColor;
     private float blobAlpha;
@@ -194,13 +194,13 @@ final class SkyView extends View {
         cw = w; ch = h;
         skyP.setShader(new LinearGradient(0, 0, 0, h, pal, new float[]{0f, 0.55f, 1f}, Shader.TileMode.CLAMP));
         if (sun) {
-            float x = sunLow ? w * 0.72f : w * 0.8f, y = sunLow ? h * 0.8f : h * 0.18f;
+            float x = sunX(w), y = sunY(h);
             glowP.setShader(new RadialGradient(x, y, w * (sunLow ? 0.38f : 0.32f),
                     new int[]{sunLow ? 0xF2FFD28C : 0xFFFFFAE1, sunLow ? 0x99FFAA64 : 0x8CFFF0C8, 0x00FFDCA0},
                     new float[]{0f, 0.14f, 1f}, Shader.TileMode.CLAMP));
             rayP.setShader(new LinearGradient(0, 0, w * 0.6f, 0, 0x1EFFF0D2, 0x00FFF0D2, Shader.TileMode.CLAMP));
         } else if (moon) {
-            float x = w * 0.8f, y = h * 0.2f;
+            float x = w * 0.6f, y = h * 0.3f;
             glowP.setShader(new RadialGradient(x, y, w * 0.22f, new int[]{0xE6DCE6FF, 0x59B4C8FF, 0x007888DC},
                     new float[]{0f, 0.1f, 1f}, Shader.TileMode.CLAMP));
         } else glowP.setShader(null);
@@ -216,7 +216,13 @@ final class SkyView extends View {
                 new int[]{0x40000000, 0x00000000, 0x00000000, Color.argb((int) (255 * dark), 0, 0, 0)},
                 new float[]{0f, 0.3f, 0.45f, 1f}, Shader.TileMode.CLAMP));
         flashP.setShader(new RadialGradient(w * 0.62f, h * 0.18f, w * 0.6f, 0xFFD2C8FF, 0x00A096E6, Shader.TileMode.CLAMP));
-        cutP.setColor(mix(pal[0], pal[1], 0.5f));
+        // месяц — круг минус смещённый круг
+        float mx = w * 0.6f, my = h * 0.3f, mr = h * 0.042f;
+        android.graphics.Path a = new android.graphics.Path(), b = new android.graphics.Path();
+        a.addCircle(mx, my, mr, android.graphics.Path.Direction.CW);
+        b.addCircle(mx + mr * 0.45f, my - mr * 0.2f, mr * 0.92f, android.graphics.Path.Direction.CW);
+        moonPath.reset();
+        moonPath.op(a, b, android.graphics.Path.Op.DIFFERENCE);
         ray.reset();
         ray.moveTo(0, 0);
         ray.lineTo(w * 0.6f, -h * 0.05f);
@@ -243,9 +249,7 @@ final class SkyView extends View {
         if (sun) rays(c, w, h, t);
         if (starN > 0) stars(c, w, h, t);
         if (moon) {
-            float x = w * 0.8f, y = h * 0.2f, r = h * 0.042f;
-            c.drawCircle(x, y, r, moonP);
-            c.drawCircle(x + r * 0.45f, y - r * 0.2f, r * 0.92f, cutP);
+            c.drawPath(moonPath, moonP);
         }
         clouds(c, w, h, t);
         if (sky == Weather.Sky.STORM) flash(c, w, h, t);
@@ -257,8 +261,11 @@ final class SkyView extends View {
         if (running) postInvalidateDelayed(FRAME_MS);
     }
 
+    private float sunX(int w) { return sunLow ? w * 0.66f : w * 0.62f; }
+    private float sunY(int h) { return sunLow ? h * 0.78f : h * 0.24f; }
+
     private void rays(Canvas c, int w, int h, float t) {
-        float x = sunLow ? w * 0.72f : w * 0.8f, y = sunLow ? h * 0.8f : h * 0.18f;
+        float x = sunX(w), y = sunY(h);
         c.save();
         c.translate(x, y);
         c.rotate(t * 1.6f);
