@@ -97,6 +97,9 @@ final class WallpaperView extends FrameLayout {
         }
     }
 
+    /** Живой фон замирает на ms — пока идёт анимация фокуса, чтобы ей хватало сил. */
+    void calm(long ms) { if (skyView != null) skyView.pauseFor(ms); }
+
     private void updateSky() {
         if (skyView == null) return;
         Weather w = lastWeather;

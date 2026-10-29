@@ -42,7 +42,7 @@ public class HomeActivity extends Activity {
     private static final long WALL_NIGHT = 30 * 60_000L;
     private static final int COLS = 5;
     /** Увеличение плитки в фокусе (как в tvOS 26). */
-    private static final float FOCUS = 1.18f;
+    private static final float FOCUS = 1.14f;
     private int lastTile = -1;
 
     private Apps apps;
@@ -502,50 +502,25 @@ public class HomeActivity extends Activity {
     }
 
     /**
-     * Фокус как в tvOS 26: плитка крупнее с «пружинкой» и тенью, соседи по ряду расступаются,
-     * короткий наклон в сторону движения (бегущий блик убран по просьбе).
+     * «Лёгкий Apple»: плитка в фокусе плавно крупнее, с подсветкой и светлым верхом.
+     * Без настоящей тени, 3D-наклона и раздвигания соседей — это тормозило на слабом ТВ.
+     * На время анимации плитка рисуется готовым слоем (withLayer), живой фон на миг замирает.
      */
     private void focusFx(View card, View sheen, View glare, boolean has, int index) {
         card.animate().cancel();
-        glare.animate().cancel();
+        glare.setAlpha(0f);
+        android.view.animation.DecelerateInterpolator ease = new android.view.animation.DecelerateInterpolator(1.5f);
         if (!has) {
-            card.animate().scaleX(1f).scaleY(1f).translationZ(0).rotationX(0).rotationY(0).setDuration(180)
-                    .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
-            sheen.animate().alpha(0f).setDuration(150).start();
-            glare.setAlpha(0f);
-            card.post(() -> { View f = getCurrentFocus(); if (f == null || tileIndex(f) < 0) spread(-1); });
+            card.animate().scaleX(1f).scaleY(1f).setDuration(160).setInterpolator(ease).withLayer().start();
+            sheen.animate().alpha(0f).setDuration(140).start();
             return;
         }
-        int col = index % COLS, row = index / COLS;
-        float ry = 0, rx = 0;
-        if (lastTile >= 0) {
-            int pc = lastTile % COLS, pr = lastTile / COLS;
-            if (pr == row && pc != col) ry = col > pc ? 7f : -7f;
-            else if (pr != row) rx = row > pr ? -6f : 6f;
-        }
         lastTile = index;
-        card.setRotationX(rx);
-        card.setRotationY(ry);
-        card.animate().scaleX(FOCUS).scaleY(FOCUS).translationZ(dp(22)).rotationX(0).rotationY(0).setDuration(320)
-                .setInterpolator(new android.view.animation.OvershootInterpolator(1.3f)).start();
-        sheen.animate().alpha(1f).setDuration(220).start();
-        spread(index);
+        wall.calm(400);
+        card.animate().scaleX(FOCUS).scaleY(FOCUS).setDuration(200).setInterpolator(ease).withLayer().start();
+        sheen.animate().alpha(1f).setDuration(200).start();
     }
 
-
-    /** Соседи по ряду расступаются, чтобы увеличенная плитка их не перекрывала. focused < 0 — вернуть всех на место. */
-    private void spread(int focused) {
-        int fr = focused < 0 ? -1 : focused / COLS, fc = focused % COLS;
-        for (int i = 0; ; i++) {
-            View t = tileAt(i);
-            if (t == null) break;
-            View cellView = (View) t.getParent();
-            float tx = 0;
-            if (i / COLS == fr && i != focused) tx = (i % COLS) < fc ? -dp(14) : dp(14);
-            cellView.animate().translationX(tx).setDuration(280)
-                    .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
-        }
-    }
 
     private int glowColor = 0xFF8A9BB5;
 
@@ -575,7 +550,8 @@ public class HomeActivity extends Activity {
                 bar.animate().alpha(hide ? 0f : 1f).setDuration(220).start();
             }
         });
-        // параллакс: фон чуть смещается вслед за фокусом
+        // параллакс: фон чуть смещается вслед за фокусом (с живым фоном — нет: лишняя перерисовка всего экрана)
+        if (wall.isSky()) return;
         int col = index % COLS, row = index / COLS;
         wall.animate().translationX((2 - col) * dp(9)).translationY(-Math.min(row, 3) * dp(6))
                 .setDuration(900).setInterpolator(new android.view.animation.DecelerateInterpolator()).start();

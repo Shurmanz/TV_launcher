@@ -101,6 +101,11 @@ final class SkyView extends View {
 
     String sceneName() { return phase + "/" + sky; }
 
+    private long pauseUntil, lastDraw;
+    private float tAcc = 5f;
+
+    void pauseFor(long ms) { pauseUntil = SystemClock.uptimeMillis() + ms; }
+
     void setRunning(boolean on) {
         running = on;
         if (on) invalidate();
@@ -252,7 +257,11 @@ final class SkyView extends View {
         checkForce();
         if (dirty) buildScene();
         if (cw != w || ch != h) buildShaders(w, h);
-        float t = (SystemClock.uptimeMillis() - t0) / 1000f;
+        // своё время: после паузы не прыгаем вперёд, а продолжаем с того же места
+        long now = SystemClock.uptimeMillis();
+        if (lastDraw != 0) tAcc += Math.min(now - lastDraw, 50) / 1000f;
+        lastDraw = now;
+        float t = tAcc;
 
         c.drawRect(0, 0, w, h, skyP);
         if (glowP.getShader() != null) c.drawRect(0, 0, w, h, glowP);
@@ -269,7 +278,10 @@ final class SkyView extends View {
         if (snowN > 0) snow(c, w, h, t);
         c.drawRect(0, 0, w, h, shadeP);
 
-        if (running) postInvalidateDelayed(FRAME_MS);
+        if (running) {
+            long wait = pauseUntil - SystemClock.uptimeMillis();
+            postInvalidateDelayed(Math.max(FRAME_MS, wait));
+        }
     }
 
     private float sunX(int w) { return sunLow ? w * 0.66f : w * 0.62f; }
