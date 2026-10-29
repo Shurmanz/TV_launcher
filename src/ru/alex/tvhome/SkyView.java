@@ -35,7 +35,7 @@ final class SkyView extends View {
     private final Paint[] rainP = new Paint[3], snowP = new Paint[3];
     private final Paint starP = new Paint(Paint.ANTI_ALIAS_FLAG), moonP = new Paint(Paint.ANTI_ALIAS_FLAG), rayP = new Paint(Paint.ANTI_ALIAS_FLAG);
     private RadialGradient blobShader, fogShader;
-    private final Paint blobLightP = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint blobLightP = new Paint(Paint.ANTI_ALIAS_FLAG), puffP = new Paint(Paint.ANTI_ALIAS_FLAG), shadowP = new Paint(Paint.ANTI_ALIAS_FLAG);
     private int blobLight;
     private final android.graphics.Path ray = new android.graphics.Path();
     private final Random cloudRnd = new Random();
@@ -113,7 +113,7 @@ final class SkyView extends View {
             case CLEAR: return new int[]{0xFF2F7FC8, 0xFF62A8E0, 0xFFA8D4F0};
             case RAIN: return new int[]{0xFF3A4A5C, 0xFF55677A, 0xFF7B8A96};
             case SNOW: return new int[]{0xFF5E6E86, 0xFF8C9AAE, 0xFFC4CCD8};
-            case FOG: return new int[]{0xFF9AA3A8, 0xFFC4C2BC, 0xFFE0D4C4};
+            case FOG: return new int[]{0xFF6E7880, 0xFF9EA2A2, 0xFFC8C2B8};
             case STORM: return new int[]{0xFF14141E, 0xFF2A2438, 0xFF463A52};
             default: return new int[]{0xFF4C5663, 0xFF6B7480, 0xFF9A9A98};
         }
@@ -124,7 +124,7 @@ final class SkyView extends View {
             case CLEAR: return new int[]{0xFF05070F, 0xFF0B1430, 0xFF18244A};
             case RAIN: return new int[]{0xFF0E141C, 0xFF1C2633, 0xFF2C3846};
             case SNOW: return new int[]{0xFF1C2242, 0xFF3A3F6E, 0xFF6A6A9A};
-            case FOG: return new int[]{0xFF20242A, 0xFF3A3E44, 0xFF55585C};
+            case FOG: return new int[]{0xFF181C22, 0xFF2E3238, 0xFF484C52};
             case STORM: return new int[]{0xFF0A0A12, 0xFF1C1828, 0xFF2E2640};
             default: return new int[]{0xFF0D1118, 0xFF1A2230, 0xFF2A3240};
         }
@@ -209,7 +209,17 @@ final class SkyView extends View {
         blobP.setShader(blobShader);
         blobLightP.setShader(new RadialGradient(0, 0, 1f, new int[]{blobLight, blobLight & 0x99FFFFFF, blobLight & 0x00FFFFFF},
                 new float[]{0f, 0.4f, 1f}, Shader.TileMode.CLAMP));
-        fogShader = new RadialGradient(0, 0, 1f, new int[]{0x55FFFCF5, 0x00FFFCF5}, null, Shader.TileMode.CLAMP);
+        boolean nightish = phase == Weather.Phase.NIGHT;
+        int fc = nightish ? 0x8A9098 : 0xFFFCF5; // ночью туман серый, а не светящийся
+        fogShader = new RadialGradient(0, 0, 1f, new int[]{0xB3000000 | fc, 0x66000000 | fc, fc},
+                new float[]{0f, 0.5f, 1f}, Shader.TileMode.CLAMP);
+        int puffTop = sky == Weather.Sky.FOG ? mix(pal[2], 0xFFFFFFFF, 0.55f)
+                : mix(pal[2], 0xFFFFFFFF, nightish ? 0.15f : 0.5f);
+        int puffBase = mix(pal[0], 0xFF000000, nightish ? 0.35f : 0.5f);
+        puffP.setShader(new RadialGradient(0, 0, 1f, new int[]{puffTop, puffTop & 0xCCFFFFFF, puffTop & 0x00FFFFFF},
+                new float[]{0f, 0.55f, 1f}, Shader.TileMode.CLAMP));
+        shadowP.setShader(new RadialGradient(0, 0, 1f, new int[]{puffBase, puffBase & 0x80FFFFFF, puffBase & 0x00FFFFFF},
+                new float[]{0f, 0.5f, 1f}, Shader.TileMode.CLAMP));
         fogP.setShader(fogShader);
         float dark = sky == Weather.Sky.FOG || (sky == Weather.Sky.CLEAR && phase == Weather.Phase.DAY) ? 0.5f : 0.38f;
         shadeP.setShader(new LinearGradient(0, 0, 0, h,
@@ -252,6 +262,7 @@ final class SkyView extends View {
             c.drawPath(moonPath, moonP);
         }
         clouds(c, w, h, t);
+        if (sky == Weather.Sky.CLOUDY || sky == Weather.Sky.FOG || sky == Weather.Sky.RAIN) puffs(c, w, h, t);
         if (sky == Weather.Sky.STORM) flash(c, w, h, t);
         if (sky == Weather.Sky.FOG) fog(c, w, h, t);
         if (rainN > 0) rain(c, w, h, t);
@@ -308,19 +319,56 @@ final class SkyView extends View {
         }
     }
 
+    /** Кучевые тучи: каждая — гроздь мягких кругов (светлый верх) над тёмной «подошвой». Плывут с разной скоростью. */
+    private void puffs(Canvas c, int w, int h, float t) {
+        Random r = cloudRnd;
+        r.setSeed(23);
+        boolean fogSky = sky == Weather.Sky.FOG;
+        int n = fogSky ? 4 : 6;
+        float span = w * 1.8f;
+        for (int i = 0; i < n; i++) {
+            float depth = 0.5f + r.nextFloat() * 0.5f;           // ближние крупнее и быстрее
+            float cx = (r.nextFloat() * span + t * (12 + 26 * depth)) % span - w * 0.4f;
+            float cy = h * (0.08f + r.nextFloat() * (fogSky ? 0.5f : 0.42f));
+            float size = h * (0.13f + 0.12f * depth);
+            // тень под тучей
+            shadowP.setAlpha((int) (255 * (fogSky ? 0.35f : 0.6f) * depth));
+            c.save();
+            c.translate(cx, cy + size * 0.55f);
+            c.scale(size * 2.6f, size * 0.55f);
+            c.drawCircle(0, 0, 1f, shadowP);
+            c.restore();
+            // гроздь
+            int k = 5 + r.nextInt(3);
+            for (int j = 0; j < k; j++) {
+                float ox = (j - (k - 1) / 2f) * size * 0.62f + (r.nextFloat() - 0.5f) * size * 0.3f;
+                float oy = -(float) Math.sin(Math.PI * (j + 0.5f) / k) * size * 0.55f + (r.nextFloat() - 0.5f) * size * 0.2f;
+                float rr = size * (0.55f + r.nextFloat() * 0.45f) * (1f - Math.abs(j - (k - 1) / 2f) / k * 0.6f);
+                puffP.setAlpha((int) (255 * (fogSky ? 0.45f : 0.62f) * depth));
+                c.save();
+                c.translate(cx + ox, cy + oy + (float) Math.sin(t * 0.3f + i + j) * size * 0.03f);
+                c.scale(rr * 1.25f, rr);
+                c.drawCircle(0, 0, 1f, puffP);
+                c.restore();
+            }
+        }
+    }
+
     private void fog(Canvas c, int w, int h, float t) {
-        for (int i = 0; i < 6; i++) {
-            float y = h * (0.25f + i * 0.13f);
-            float x = (t * (10 + i * 6)) % (w * 1.6f) - w * 0.3f;
-            fogP.setAlpha(150 + i * 15);
+        // плотные слои, медленно идут в разные стороны; внизу гуще
+        for (int i = 0; i < 8; i++) {
+            float y = h * (0.18f + i * 0.11f);
+            float dir = i % 2 == 0 ? 1f : -1f;
+            float x = ((t * (14 + i * 7) * dir) % (w * 1.6f) + w * 1.6f) % (w * 1.6f) - w * 0.3f;
+            fogP.setAlpha(Math.min(255, 140 + i * 16));
             c.save();
             c.translate(x, y);
-            c.scale(w * 0.75f, h * 0.11f);
+            c.scale(w * 0.8f, h * (0.1f + i * 0.012f));
             c.drawCircle(0, 0, 1f, fogP);
             c.restore();
             c.save();
-            c.translate(x - w * 1.1f, y + h * 0.03f);
-            c.scale(w * 0.7f, h * 0.1f);
+            c.translate(x - w * 1.15f, y + h * 0.04f);
+            c.scale(w * 0.72f, h * (0.09f + i * 0.01f));
             c.drawCircle(0, 0, 1f, fogP);
             c.restore();
         }
