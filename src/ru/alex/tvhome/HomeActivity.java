@@ -563,6 +563,15 @@ public class HomeActivity extends Activity {
             float cx = a[0] - b[0] + card.getWidth() / 2f;
             float cy = a[1] - b[1] + card.getHeight() / 2f;
             glow.moveTo(cx, cy, app == null ? 0xFF8A9BB5 : accent(app));
+            // увеличенная плитка с подписью не должна уходить под подсказку/плашку внизу — тогда прячем их
+            float bottom = cy + card.getHeight() * FOCUS / 2f + dp(44);
+            for (View bar : new View[]{tip, updBar}) {
+                if (bar == null || bar.getVisibility() != View.VISIBLE) continue;
+                int[] t = new int[2];
+                bar.getLocationInWindow(t);
+                boolean hide = bottom > t[1] - b[1] && !bar.hasFocus();
+                bar.animate().alpha(hide ? 0f : 1f).setDuration(220).start();
+            }
         });
         // параллакс: фон чуть смещается вслед за фокусом
         int col = index % COLS, row = index / COLS;
