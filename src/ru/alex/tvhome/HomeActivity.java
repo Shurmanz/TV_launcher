@@ -41,6 +41,9 @@ public class HomeActivity extends Activity {
     private static final long WALL_DAY = 10 * 60_000L;
     private static final long WALL_NIGHT = 30 * 60_000L;
     private static final int COLS = 5;
+    /** Увеличение плитки в фокусе (как в tvOS 26). */
+    private static final float FOCUS = 1.18f;
+    private int lastTile = -1;
 
     private Apps apps;
     private FrameLayout root, content;
@@ -263,7 +266,7 @@ public class HomeActivity extends Activity {
         int side = dp(64), gap = dp(24);
         tileW = (sw - 2 * side - (COLS - 1) * gap) / COLS;
         tileH = Math.round(tileW * 9f / 16f);
-        glow.setTile(tileW, tileH, dp(14), 1.1f);
+        glow.setTile(tileW, tileH, dp(14), FOCUS);
 
         scroll = new ScrollView(this);
         scroll.setVerticalScrollBarEnabled(false);
@@ -447,6 +450,18 @@ public class HomeActivity extends Activity {
             img.setImageDrawable(app.icon);
             card.addView(img, new FrameLayout.LayoutParams(Math.round(tileH * 0.56f), Math.round(tileH * 0.56f), Gravity.CENTER));
         }
+        // «стекло»: постоянный мягкий блик сверху + световая полоса, пробегающая при выделении
+        View sheen = new View(this);
+        sheen.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{0x2EFFFFFF, 0x08FFFFFF, 0x00FFFFFF}));
+        sheen.setAlpha(0f);
+        card.addView(sheen, match());
+        View glare = new View(this);
+        glare.setBackground(new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                new int[]{0x00FFFFFF, 0x00FFFFFF, 0x59FFFFFF, 0x00FFFFFF, 0x00FFFFFF}));
+        glare.setAlpha(0f);
+        card.addView(glare, match());
+        card.setCameraDistance(9000 * getResources().getDisplayMetrics().density);
         cell.addView(card, new LinearLayout.LayoutParams(tileW, tileH));
 
         TextView label = Ui.text(this, 16, 500, 0xFFFFFFFF);
@@ -461,16 +476,17 @@ public class HomeActivity extends Activity {
 
         card.setTag(app == null ? "" : app.pkg);
         card.setOnFocusChangeListener((v, has) -> {
-            Ui.focusScale(v, has, 1.1f);
-            label.animate().alpha(has ? 1f : 0f).translationY(has ? dp(4) : 0).setDuration(170).start();
+            focusFx(v, sheen, glare, has, index);
+            label.animate().alpha(has ? 1f : 0f).translationY(has ? dp(12) : 0).setDuration(has ? 260 : 150)
+                    .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
             if (has) onTileFocused(v, app, index);
         });
         card.setOnClickListener(v -> {
             if (moving != null) { endMove(); return; }
             if (app == null) { openLibrary(null); return; }
             glow.pulse();
-            v.animate().scaleX(0.97f).scaleY(0.97f).setDuration(90).withEndAction(() ->
-                    v.animate().scaleX(1.1f).scaleY(1.1f).setDuration(120).start()).start();
+            v.animate().scaleX(1.06f).scaleY(1.06f).setDuration(90).withEndAction(() ->
+                    v.animate().scaleX(FOCUS).scaleY(FOCUS).setDuration(140).start()).start();
             v.postDelayed(() -> launch(app), 170);
         });
         card.setOnLongClickListener(v -> {
@@ -478,6 +494,65 @@ public class HomeActivity extends Activity {
             return true;
         });
         return cell;
+    }
+
+    /**
+     * Фокус как в tvOS 26: плитка крупнее с «пружинкой» и тенью, соседи по ряду расступаются,
+     * короткий наклон в сторону движения, по «стеклу» пробегает блик и потом медленно «дышит».
+     */
+    private void focusFx(View card, View sheen, View glare, boolean has, int index) {
+        card.animate().cancel();
+        glare.animate().cancel();
+        if (!has) {
+            card.animate().scaleX(1f).scaleY(1f).translationZ(0).rotationX(0).rotationY(0).setDuration(180)
+                    .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
+            sheen.animate().alpha(0f).setDuration(150).start();
+            glare.setAlpha(0f);
+            card.post(() -> { View f = getCurrentFocus(); if (f == null || tileIndex(f) < 0) spread(-1); });
+            return;
+        }
+        int col = index % COLS, row = index / COLS;
+        float ry = 0, rx = 0;
+        if (lastTile >= 0) {
+            int pc = lastTile % COLS, pr = lastTile / COLS;
+            if (pr == row && pc != col) ry = col > pc ? 7f : -7f;
+            else if (pr != row) rx = row > pr ? -6f : 6f;
+        }
+        lastTile = index;
+        card.setRotationX(rx);
+        card.setRotationY(ry);
+        card.animate().scaleX(FOCUS).scaleY(FOCUS).translationZ(dp(22)).rotationX(0).rotationY(0).setDuration(320)
+                .setInterpolator(new android.view.animation.OvershootInterpolator(1.3f)).start();
+        sheen.animate().alpha(1f).setDuration(220).start();
+        // блик: проход слева направо, затем мягкое «дыхание»
+        glare.setTranslationX(-card.getWidth());
+        glare.setAlpha(1f);
+        glare.animate().translationX(card.getWidth()).setDuration(650).setStartDelay(80)
+                .setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator())
+                .withEndAction(() -> breathe(card, glare)).start();
+        spread(index);
+    }
+
+    private void breathe(View card, View glare) {
+        if (!card.isFocused()) return;
+        glare.setTranslationX(0);
+        glare.setAlpha(0f);
+        glare.animate().alpha(0.45f).setDuration(1600).setStartDelay(400).withEndAction(() ->
+                glare.animate().alpha(0f).setDuration(1600).withEndAction(() -> breathe(card, glare)).start()).start();
+    }
+
+    /** Соседи по ряду расступаются, чтобы увеличенная плитка их не перекрывала. focused < 0 — вернуть всех на место. */
+    private void spread(int focused) {
+        int fr = focused < 0 ? -1 : focused / COLS, fc = focused % COLS;
+        for (int i = 0; ; i++) {
+            View t = tileAt(i);
+            if (t == null) break;
+            View cellView = (View) t.getParent();
+            float tx = 0;
+            if (i / COLS == fr && i != focused) tx = (i % COLS) < fc ? -dp(14) : dp(14);
+            cellView.animate().translationX(tx).setDuration(280)
+                    .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
+        }
     }
 
     private void onTileFocused(View card, Apps.App app, int index) {
