@@ -199,7 +199,9 @@ final class Comfort {
             android.content.pm.PackageInfo pi = c.getPackageManager().getPackageInfo(c.getPackageName(), 0);
             upgrade = pi.lastUpdateTime - pi.firstInstallTime > 60_000;
         } catch (Exception ignored) { }
-        p(c).edit().putInt("seen_ver", cur).apply();
+        if (!upgrade) p(c).edit().putInt("seen_ver", cur).apply(); // при обновлении — отметка по «Понятно»
         return upgrade;
     }
+
+    static void whatsNewSeen(Context c) { p(c).edit().putInt("seen_ver", Updater.myVersion(c)).apply(); }
 }
