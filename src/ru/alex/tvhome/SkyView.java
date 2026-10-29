@@ -170,12 +170,12 @@ final class SkyView extends View {
             case FOG: blobs = 6; blobAlpha = 0.5f; break;
             case SNOW: blobs = 9; blobAlpha = 0.6f; break;
             case STORM: blobs = 14; blobAlpha = 0.85f; break;
-            default: blobs = 13; blobAlpha = 0.75f;
+            default: blobs = 14; blobAlpha = 0.9f;
         }
         // тёмные и светлые пятна вперемешку — объём «туч», а не ровный градиент
         blobColor = sky == Weather.Sky.CLEAR && !nightish ? 0xFFFFFFFF
-                : sky == Weather.Sky.FOG ? mix(p[2], 0xFFFFFFFF, 0.3f) : mix(p[0], 0xFF000000, nightish ? 0.1f : 0.25f);
-        blobLight = sky == Weather.Sky.CLEAR && !nightish ? 0xFFFFFFFF : mix(p[2], 0xFFFFFFFF, nightish ? 0.08f : 0.25f);
+                : sky == Weather.Sky.FOG ? mix(p[2], 0xFFFFFFFF, 0.3f) : mix(p[0], 0xFF000000, nightish ? 0.2f : 0.42f);
+        blobLight = sky == Weather.Sky.CLEAR && !nightish ? 0xFFFFFFFF : mix(p[2], 0xFFFFFFFF, nightish ? 0.12f : 0.4f);
 
         rainN = sky == Weather.Sky.STORM ? 520 : sky == Weather.Sky.RAIN ? (code >= 51 && code <= 57 ? 160 : code >= 80 ? 420 : 300) : 0;
         snowN = sky == Weather.Sky.SNOW ? (code == 71 ? 160 : code >= 75 || code == 86 ? 380 : 260) : 0;
@@ -287,12 +287,12 @@ final class SkyView extends View {
         r.setSeed(7);
         float span = w * 1.5f;
         for (int i = 0; i < blobs; i++) {
-            float speed = (sky == Weather.Sky.STORM ? 30 : 10) + r.nextFloat() * 16;
+            float speed = (sky == Weather.Sky.STORM ? 40 : 16) + r.nextFloat() * 22;
             float bx = (r.nextFloat() * span + t * speed) % span - w * 0.25f;
             float by = r.nextFloat() * h * (sky == Weather.Sky.FOG ? 1f : 0.7f) + (float) Math.sin(t * 0.2f + i) * h * 0.02f;
             float rad = h * (0.2f + r.nextFloat() * 0.32f);
             Paint bp = i % 3 == 2 ? blobLightP : blobP;
-            bp.setAlpha((int) (255 * blobAlpha * (0.6f + r.nextFloat() * 0.4f) * (bp == blobLightP ? 0.7f : 1f)));
+            bp.setAlpha((int) (255 * blobAlpha * (0.6f + r.nextFloat() * 0.4f) * (bp == blobLightP ? 0.85f : 1f)));
             c.save();
             c.translate(bx, by);
             c.scale(rad * 1.7f, rad * 0.75f);
