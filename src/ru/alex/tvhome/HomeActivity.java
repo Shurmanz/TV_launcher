@@ -402,7 +402,8 @@ public class HomeActivity extends Activity {
         c.setGravity(Gravity.CENTER_VERTICAL);
         c.setPadding(dp(10), dp(10), dp(10), dp(10));
         c.setFocusable(true);
-        Ui.pill(c, false);
+        Ui.chipPill(c, false);
+        c.setOutlineProvider(android.view.ViewOutlineProvider.BACKGROUND);
         ImageView iv = new ImageView(this);
         iv.setImageDrawable(icon);
         c.addView(iv, new LinearLayout.LayoutParams(dp(20), dp(20)));
@@ -415,7 +416,7 @@ public class HomeActivity extends Activity {
         tl.leftMargin = dp(8);
         c.addView(t, tl);
         c.setOnFocusChangeListener((v, has) -> {
-            Ui.pill(v, has);
+            Ui.chipPill(v, has);
             ((Icon) iv.getDrawable()).setColor(has ? 0xFF111111 : 0xFFFFFFFF);
             t.setVisibility(has ? View.VISIBLE : View.GONE);
             v.setPadding(dp(10), dp(10), has ? dp(16) : dp(10), dp(10));

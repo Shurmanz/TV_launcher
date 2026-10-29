@@ -52,6 +52,16 @@ final class Ui {
                 : round(0x33FFFFFF, r, dp(c, 1), 0x33FFFFFF));
     }
 
+    /** Кнопки на главном экране поверх фона: тёмное «стекло» с тенью — видно и на светлом небе. */
+    static void chipPill(View v, boolean focused) {
+        Context c = v.getContext();
+        float r = dp(c, 100);
+        v.setBackground(focused
+                ? round(0xF2FFFFFF, r, 0, 0)
+                : round(0x59101418, r, dp(c, 1), 0x4DFFFFFF));
+        v.setElevation(dp(c, focused ? 8 : 5));
+    }
+
     static void focusScale(View v, boolean has, float s) {
         v.animate().scaleX(has ? s : 1f).scaleY(has ? s : 1f).translationZ(has ? dp(v.getContext(), 16) : 0)
                 .setInterpolator(new DecelerateInterpolator()).setDuration(170).start();
