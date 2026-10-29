@@ -475,6 +475,7 @@ public class HomeActivity extends Activity {
         label.setEllipsize(TextUtils.TruncateAt.END);
         label.setGravity(Gravity.CENTER);
         label.setAlpha(0f);
+        label.setTranslationY(-dp(8)); // в фокусе съезжает на место — посередине между плиткой и рядом ниже
         LinearLayout.LayoutParams ll = new LinearLayout.LayoutParams(tileW + dp(20), ViewGroup.LayoutParams.WRAP_CONTENT);
         ll.topMargin = dp(16);
         cell.addView(label, ll);
@@ -482,7 +483,7 @@ public class HomeActivity extends Activity {
         card.setTag(app == null ? "" : app.pkg);
         card.setOnFocusChangeListener((v, has) -> {
             focusFx(v, sheen, glare, has, index);
-            label.animate().alpha(has ? 1f : 0f).translationY(has ? dp(12) : 0).setDuration(has ? 260 : 150)
+            label.animate().alpha(has ? 1f : 0f).translationY(has ? 0 : -dp(8)).setDuration(has ? 260 : 150)
                     .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
             if (has) onTileFocused(v, app, index);
         });
