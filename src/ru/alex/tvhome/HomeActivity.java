@@ -275,8 +275,12 @@ public class HomeActivity extends Activity {
         scroll.setClipToPadding(false);
         scroll.setFillViewport(true);
         scroll.setSmoothScrollingEnabled(true);
-        scroll.setVerticalFadingEdgeEnabled(true);
-        scroll.setFadingEdgeLength(dp(30));
+        scroll.setVerticalFadingEdgeEnabled(false); // затемнение края резало верхний ряд при прокрутке вниз
+        // сетка прокрутилась — подсветка едет за плиткой в фокусе
+        scroll.setOnScrollChangeListener((v, x, y, ox, oy) -> {
+            View f = getCurrentFocus();
+            if (f != null && tileIndex(f) >= 0) glowTo(f);
+        });
         grid = new LinearLayout(this);
         grid.setOrientation(LinearLayout.VERTICAL);
         grid.setClipChildren(false);
@@ -499,7 +503,7 @@ public class HomeActivity extends Activity {
 
     /**
      * Фокус как в tvOS 26: плитка крупнее с «пружинкой» и тенью, соседи по ряду расступаются,
-     * короткий наклон в сторону движения, по «стеклу» пробегает блик и потом медленно «дышит».
+     * короткий наклон в сторону движения (бегущий блик убран по просьбе).
      */
     private void focusFx(View card, View sheen, View glare, boolean has, int index) {
         card.animate().cancel();
@@ -525,22 +529,9 @@ public class HomeActivity extends Activity {
         card.animate().scaleX(FOCUS).scaleY(FOCUS).translationZ(dp(22)).rotationX(0).rotationY(0).setDuration(320)
                 .setInterpolator(new android.view.animation.OvershootInterpolator(1.3f)).start();
         sheen.animate().alpha(1f).setDuration(220).start();
-        // блик: проход слева направо, затем мягкое «дыхание»
-        glare.setTranslationX(-card.getWidth());
-        glare.setAlpha(1f);
-        glare.animate().translationX(card.getWidth()).setDuration(650).setStartDelay(80)
-                .setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator())
-                .withEndAction(() -> breathe(card, glare)).start();
         spread(index);
     }
 
-    private void breathe(View card, View glare) {
-        if (!card.isFocused()) return;
-        glare.setTranslationX(0);
-        glare.setAlpha(0f);
-        glare.animate().alpha(0.45f).setDuration(1600).setStartDelay(400).withEndAction(() ->
-                glare.animate().alpha(0f).setDuration(1600).withEndAction(() -> breathe(card, glare)).start()).start();
-    }
 
     /** Соседи по ряду расступаются, чтобы увеличенная плитка их не перекрывала. focused < 0 — вернуть всех на место. */
     private void spread(int focused) {
@@ -556,6 +547,15 @@ public class HomeActivity extends Activity {
         }
     }
 
+    private int glowColor = 0xFF8A9BB5;
+
+    private void glowTo(View card) {
+        int[] a = new int[2], b = new int[2];
+        card.getLocationInWindow(a);
+        root.getLocationInWindow(b);
+        glow.moveTo(a[0] - b[0] + card.getWidth() / 2f, a[1] - b[1] + card.getHeight() / 2f, glowColor);
+    }
+
     private void onTileFocused(View card, Apps.App app, int index) {
         card.post(() -> {
             int[] a = new int[2], b = new int[2];
@@ -563,7 +563,8 @@ public class HomeActivity extends Activity {
             root.getLocationInWindow(b);
             float cx = a[0] - b[0] + card.getWidth() / 2f;
             float cy = a[1] - b[1] + card.getHeight() / 2f;
-            glow.moveTo(cx, cy, app == null ? 0xFF8A9BB5 : accent(app));
+            glowColor = app == null ? 0xFF8A9BB5 : accent(app);
+            glow.moveTo(cx, cy, glowColor);
             // увеличенная плитка с подписью не должна уходить под подсказку/плашку внизу — тогда прячем их
             float bottom = cy + card.getHeight() * FOCUS / 2f + dp(44);
             for (View bar : new View[]{tip, updBar}) {
