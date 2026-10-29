@@ -1239,8 +1239,16 @@ public class HomeActivity extends Activity {
                 long gain = Math.max(0, r[1] - r[0]);
                 Toast.makeText(this, (gain >= 10L * 1048576 ? "Освобождено " + Comfort.mb(gain) + " · " : "Уже было чисто · ")
                         + "свободно " + Comfort.gb(r[1]), Toast.LENGTH_LONG).show();
+                hideTipFor(3800);
             });
         }).start();
+    }
+
+    /** Убрать подсказку внизу, пока висит тост (он показывается ровно на её месте). */
+    private void hideTipFor(long ms) {
+        if (tip == null || tip.getVisibility() != View.VISIBLE) return;
+        tip.animate().alpha(0f).setDuration(150).start();
+        tip.postDelayed(() -> tip.animate().alpha(1f).setDuration(250).start(), ms);
     }
 
     private String label(String pkg) {
