@@ -35,6 +35,8 @@ final class SkyView extends View {
     private final Paint[] rainP = new Paint[3], snowP = new Paint[3];
     private final Paint starP = new Paint(Paint.ANTI_ALIAS_FLAG), moonP = new Paint(Paint.ANTI_ALIAS_FLAG), rayP = new Paint(Paint.ANTI_ALIAS_FLAG);
     private RadialGradient blobShader, fogShader;
+    private final Paint blobLightP = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private int blobLight;
     private final android.graphics.Path ray = new android.graphics.Path();
     private final Random cloudRnd = new Random();
     private final Paint cutP = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -164,14 +166,16 @@ final class SkyView extends View {
         starN = nightish ? (sky == Weather.Sky.CLEAR ? 260 : sky == Weather.Sky.CLOUDY && code <= 2 ? 90 : 0) : 0;
 
         switch (sky) {
-            case CLEAR: blobs = 4; blobAlpha = 0.22f; break;
-            case FOG: blobs = 6; blobAlpha = 0.45f; break;
-            case SNOW: blobs = 8; blobAlpha = 0.45f; break;
-            case STORM: blobs = 13; blobAlpha = 0.7f; break;
-            default: blobs = 11; blobAlpha = 0.55f;
+            case CLEAR: blobs = 4; blobAlpha = 0.25f; break;
+            case FOG: blobs = 6; blobAlpha = 0.5f; break;
+            case SNOW: blobs = 9; blobAlpha = 0.6f; break;
+            case STORM: blobs = 14; blobAlpha = 0.85f; break;
+            default: blobs = 13; blobAlpha = 0.75f;
         }
+        // тёмные и светлые пятна вперемешку — объём «туч», а не ровный градиент
         blobColor = sky == Weather.Sky.CLEAR && !nightish ? 0xFFFFFFFF
-                : sky == Weather.Sky.FOG ? mix(p[2], 0xFFFFFFFF, 0.3f) : mix(p[0], p[1], 0.35f);
+                : sky == Weather.Sky.FOG ? mix(p[2], 0xFFFFFFFF, 0.3f) : mix(p[0], 0xFF000000, nightish ? 0.1f : 0.25f);
+        blobLight = sky == Weather.Sky.CLEAR && !nightish ? 0xFFFFFFFF : mix(p[2], 0xFFFFFFFF, nightish ? 0.08f : 0.25f);
 
         rainN = sky == Weather.Sky.STORM ? 520 : sky == Weather.Sky.RAIN ? (code >= 51 && code <= 57 ? 160 : code >= 80 ? 420 : 300) : 0;
         snowN = sky == Weather.Sky.SNOW ? (code == 71 ? 160 : code >= 75 || code == 86 ? 380 : 260) : 0;
@@ -200,8 +204,11 @@ final class SkyView extends View {
             glowP.setShader(new RadialGradient(x, y, w * 0.22f, new int[]{0xE6DCE6FF, 0x59B4C8FF, 0x007888DC},
                     new float[]{0f, 0.1f, 1f}, Shader.TileMode.CLAMP));
         } else glowP.setShader(null);
-        blobShader = new RadialGradient(0, 0, 1f, new int[]{blobColor, blobColor & 0x00FFFFFF}, null, Shader.TileMode.CLAMP);
+        blobShader = new RadialGradient(0, 0, 1f, new int[]{blobColor, blobColor & 0xB3FFFFFF, blobColor & 0x00FFFFFF},
+                new float[]{0f, 0.45f, 1f}, Shader.TileMode.CLAMP);
         blobP.setShader(blobShader);
+        blobLightP.setShader(new RadialGradient(0, 0, 1f, new int[]{blobLight, blobLight & 0x99FFFFFF, blobLight & 0x00FFFFFF},
+                new float[]{0f, 0.4f, 1f}, Shader.TileMode.CLAMP));
         fogShader = new RadialGradient(0, 0, 1f, new int[]{0x55FFFCF5, 0x00FFFCF5}, null, Shader.TileMode.CLAMP);
         fogP.setShader(fogShader);
         float dark = sky == Weather.Sky.FOG || (sky == Weather.Sky.CLEAR && phase == Weather.Phase.DAY) ? 0.5f : 0.38f;
@@ -284,11 +291,12 @@ final class SkyView extends View {
             float bx = (r.nextFloat() * span + t * speed) % span - w * 0.25f;
             float by = r.nextFloat() * h * (sky == Weather.Sky.FOG ? 1f : 0.7f) + (float) Math.sin(t * 0.2f + i) * h * 0.02f;
             float rad = h * (0.2f + r.nextFloat() * 0.32f);
-            blobP.setAlpha((int) (255 * blobAlpha * (0.6f + r.nextFloat() * 0.4f)));
+            Paint bp = i % 3 == 2 ? blobLightP : blobP;
+            bp.setAlpha((int) (255 * blobAlpha * (0.6f + r.nextFloat() * 0.4f) * (bp == blobLightP ? 0.7f : 1f)));
             c.save();
             c.translate(bx, by);
             c.scale(rad * 1.7f, rad * 0.75f);
-            c.drawCircle(0, 0, 1f, blobP);
+            c.drawCircle(0, 0, 1f, bp);
             c.restore();
         }
     }
