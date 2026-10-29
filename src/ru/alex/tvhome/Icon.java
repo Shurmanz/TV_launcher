@@ -11,7 +11,7 @@ import android.graphics.drawable.Drawable;
 
 /** Простые значки, нарисованные кодом (без ресурсов): вход, Wi‑Fi, Ethernet, шестерёнка, плюс. */
 final class Icon extends Drawable {
-    static final int INPUT = 0, WIFI = 1, ETHERNET = 2, GEAR = 3, PLUS = 4, NO_NET = 5, AV = 6, TV = 7;
+    static final int INPUT = 0, WIFI = 1, ETHERNET = 2, GEAR = 3, PLUS = 4, NO_NET = 5, AV = 6, TV = 7, ROCKET = 8;
 
     private final int kind;
     private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -124,6 +124,38 @@ final class Icon extends Drawable {
                 tri.lineTo(cx - s * 0.08f, cy + s * 0.2f);
                 tri.close();
                 c.drawPath(tri, p);
+                break;
+            }
+            case ROCKET: { // ракета под 45°: корпус с иллюминатором, крылья, пламя
+                int layer = c.saveLayer(b.left, b.top, b.right, b.bottom, null);
+                c.rotate(45, cx, cy);
+                p.setStyle(Paint.Style.FILL);
+                Path body = new Path();
+                body.moveTo(cx, cy - s * 0.46f);
+                body.cubicTo(cx + s * 0.2f, cy - s * 0.3f, cx + s * 0.15f, cy - s * 0.05f, cx + s * 0.13f, cy + s * 0.2f);
+                body.lineTo(cx - s * 0.13f, cy + s * 0.2f);
+                body.cubicTo(cx - s * 0.15f, cy - s * 0.05f, cx - s * 0.2f, cy - s * 0.3f, cx, cy - s * 0.46f);
+                body.close();
+                c.drawPath(body, p);
+                Path fins = new Path();
+                fins.moveTo(cx - s * 0.13f, cy - s * 0.02f);
+                fins.lineTo(cx - s * 0.29f, cy + s * 0.22f);
+                fins.lineTo(cx - s * 0.13f, cy + s * 0.2f);
+                fins.close();
+                fins.moveTo(cx + s * 0.13f, cy - s * 0.02f);
+                fins.lineTo(cx + s * 0.29f, cy + s * 0.22f);
+                fins.lineTo(cx + s * 0.13f, cy + s * 0.2f);
+                fins.close();
+                c.drawPath(fins, p);
+                Path flame = new Path();
+                flame.moveTo(cx - s * 0.08f, cy + s * 0.27f);
+                flame.quadTo(cx, cy + s * 0.5f, cx + s * 0.08f, cy + s * 0.27f);
+                flame.close();
+                c.drawPath(flame, p);
+                Paint hole = new Paint(Paint.ANTI_ALIAS_FLAG); // иллюминатор — прозрачная «дырка»
+                hole.setXfermode(new android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.CLEAR));
+                c.drawCircle(cx, cy - s * 0.13f, s * 0.065f, hole);
+                c.restoreToCount(layer);
                 break;
             }
             case PLUS: {

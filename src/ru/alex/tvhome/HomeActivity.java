@@ -245,6 +245,7 @@ public class HomeActivity extends Activity {
         View net = chip(new Icon(Icon.WIFI, 0xFFFFFFFF), "Wi‑Fi", v -> openSettings(Settings.ACTION_WIFI_SETTINGS), null);
         netLabel = (TextView) ((ViewGroup) net).getChildAt(1);
         chips.addView(net);
+        chips.addView(chip(new Icon(Icon.ROCKET, 0xFFFFFFFF), "Ускорить", this::boost, null));
         settingsIcon = new Icon(Icon.GEAR, 0xFFFFFFFF);
         chips.addView(chip(settingsIcon, "Настройки", v -> openGearMenu(),
                 v -> { openSleep(); return true; }));
@@ -1134,6 +1135,28 @@ public class HomeActivity extends Activity {
         section(p, "Вернуть как было", "Убрать Slauncher и все его изменения с телевизора.", back);
         if (!adb) p.count.setText("часть функций — после «Оптимизация → Подключить»");
         showPanel(p, first);
+    }
+
+    private boolean boosting;
+
+    /** Ракета: закрыть всё, что висит в фоне, и показать, сколько памяти освободилось. */
+    private void boost(View v) {
+        if (boosting) return;
+        boosting = true;
+        View icon = ((ViewGroup) v).getChildAt(0);
+        icon.animate().translationX(dp(5)).translationY(-dp(5)).setDuration(220).withEndAction(() ->
+                icon.animate().translationX(-dp(3)).translationY(dp(3)).setDuration(160).withEndAction(() ->
+                        icon.animate().translationX(dp(5)).translationY(-dp(5)).setDuration(220).start()).start()).start();
+        new Thread(() -> {
+            long[] r = Comfort.freeMemory(this);
+            runOnUiThread(() -> {
+                boosting = false;
+                icon.animate().translationX(0).translationY(0).setDuration(200).start();
+                long gain = Math.max(0, r[1] - r[0]);
+                Toast.makeText(this, (gain >= 10L * 1048576 ? "Освобождено " + Comfort.mb(gain) + " · " : "Уже было чисто · ")
+                        + "свободно " + Comfort.gb(r[1]), Toast.LENGTH_LONG).show();
+            });
+        }).start();
     }
 
     private String label(String pkg) {
