@@ -121,7 +121,7 @@ public class HomeActivity extends Activity {
     }
 
     private static boolean setupOffered;
-    private long lastHomeIntent;
+    private long lastHomeIntent, dblAt;
 
     @Override
     protected void onPause() {
@@ -139,8 +139,16 @@ public class HomeActivity extends Activity {
         // «Домой» пришёл прямо к нам (Slauncher — системный главный экран): второе нажатие подряд — в прошлое приложение
         if (!intent.getBooleanExtra("from_service", false) && Intent.ACTION_MAIN.equals(intent.getAction())) {
             long now = android.os.SystemClock.elapsedRealtime();
+            // TCL на двойное «Домой» сам ещё раз шлёт «Домой» через ~0,2–0,3 с — он выкидывал из вернувшегося приложения
+            if (dblAt != 0 && now - dblAt < 1000) { Comfort.open(this, Comfort.lastApp(this)); return; }
             if (lastHomeIntent != 0 && now - lastHomeIntent > 250 && now - lastHomeIntent < 1500
-                    && Comfort.open(this, Comfort.lastApp(this))) { lastHomeIntent = 0; Comfort.tipDone(this, "dbl"); return; }
+                    && Comfort.open(this, Comfort.lastApp(this))) {
+                lastHomeIntent = 0;
+                dblAt = now;
+                Comfort.tipDone(this, "dbl");
+                return;
+            }
+            dblAt = 0;
             lastHomeIntent = now;
         }
         closePanel();
