@@ -131,7 +131,14 @@ final class WallpaperView extends FrameLayout {
 
     void release() {
         stop();
+        ui.removeCallbacksAndMessages(null); // отложенный повтор погоды не должен сработать после закрытия
         bg.shutdownNow();
+    }
+
+    /** Фоновая задача; после release() молча пропускаем (раньше тут падал Slauncher). */
+    private void run(Runnable r) {
+        if (bg.isShutdown()) return;
+        try { bg.execute(r); } catch (java.util.concurrent.RejectedExecutionException ignored) { }
     }
 
     /** Сразу следующее фото. */
@@ -145,7 +152,7 @@ final class WallpaperView extends FrameLayout {
     void hideCurrent() {
         final String c = current;
         if (c == null) return;
-        bg.execute(() -> {
+        run(() -> {
             walls.hide(c);
             urls.remove(c);
         });
@@ -163,7 +170,7 @@ final class WallpaperView extends FrameLayout {
         Weather w = lastWeather;
         if (weatherBusy || (w != null && System.currentTimeMillis() - w.fetchedAt < WEATHER_TTL)) return;
         weatherBusy = true;
-        bg.execute(() -> {
+        run(() -> {
             try {
                 Weather fw = Weather.fetch();
                 lastWeather = fw;
@@ -194,7 +201,7 @@ final class WallpaperView extends FrameLayout {
     };
 
     private void showCached() {
-        bg.execute(() -> {
+        run(() -> {
             File f = walls.anyCached();
             Bitmap bm = f == null ? null : decode(f);
             if (bm != null) ui.post(() -> { if (front.getDrawable() == null && skyView == null) crossfade(bm, null); });
@@ -204,7 +211,7 @@ final class WallpaperView extends FrameLayout {
     private void loadNext() {
         if (busy) return;
         busy = true;
-        bg.execute(() -> {
+        run(() -> {
             Bitmap bm = null;
             String used = null;
             try {

@@ -140,7 +140,7 @@ public class HomeActivity extends Activity {
         if (!intent.getBooleanExtra("from_service", false) && Intent.ACTION_MAIN.equals(intent.getAction())) {
             long now = android.os.SystemClock.elapsedRealtime();
             // TCL на двойное «Домой» сам ещё раз шлёт «Домой» через ~0,2–0,3 с — он выкидывал из вернувшегося приложения
-            if (dblAt != 0 && now - dblAt < 1000) { Comfort.open(this, Comfort.lastApp(this)); return; }
+            if (dblAt != 0 && now - dblAt < 400) { Comfort.open(this, Comfort.lastApp(this)); return; }
             if (lastHomeIntent != 0 && now - lastHomeIntent > 250 && now - lastHomeIntent < 1500
                     && Comfort.open(this, Comfort.lastApp(this))) {
                 lastHomeIntent = 0;
