@@ -19,7 +19,7 @@ import java.util.Random;
  * градиентами и линиями — без картинок; ~30 кадров/с, только пока экран виден.
  */
 final class SkyView extends View {
-    private static final long FRAME_MS = 33;
+    private static final long FRAME_MS = 40; // 25 кадров/с хватает, меньше нагрузка
 
     private Weather.Phase phase = Weather.Phase.DAY;
     private Weather.Sky sky = Weather.Sky.CLOUDY;
@@ -191,7 +191,7 @@ final class SkyView extends View {
         for (int i = 0; i < n; i++) { px[i] = r.nextFloat(); py[i] = r.nextFloat(); pd[i] = r.nextFloat(); pf[i] = r.nextFloat() * 6.28f; }
         lines = new float[rainN * 4];
         for (int i = 0; i < 3; i++) pts[i] = new float[n * 2];
-        cw = -1; // пересобрать шейдеры
+        cw = -1; // пересобрать шейдеры и слои
         dirty = false;
     }
 
@@ -250,30 +250,96 @@ final class SkyView extends View {
         }
     }
 
+    // ---------- слои-картинки: рисуются один раз, дальше только двигаются ----------
+    // Раньше каждый кадр рисовалось ~40 огромных полупрозрачных кругов — слабый GPU телевизора
+    // тратил ~50 мс на кадр, тормозил весь экран. Теперь кадр — это несколько готовых картинок.
+    private android.graphics.Bitmap baseB, blobB, puffB, fogB;
+    private final Paint bmpP = new Paint(Paint.FILTER_BITMAP_FLAG);
+    private final android.graphics.RectF dst = new android.graphics.RectF();
+    private static final float LQ = 0.25f, BQ = 0.5f; // масштаб слоёв облаков и неба
+
+    private void recycleLayers() {
+        for (android.graphics.Bitmap bm : new android.graphics.Bitmap[]{baseB, blobB, puffB, fogB}) if (bm != null) bm.recycle();
+        baseB = blobB = puffB = fogB = null;
+    }
+
+    private android.graphics.Bitmap layer(int w, int h, float q, int widthMul) {
+        return android.graphics.Bitmap.createBitmap(Math.max(1, Math.round(w * widthMul * q)), Math.max(1, Math.round(h * q)),
+                android.graphics.Bitmap.Config.ARGB_8888);
+    }
+
+    private void buildLayers(int w, int h) {
+        recycleLayers();
+        baseB = layer(w, h, BQ, 1);
+        Canvas cb = new Canvas(baseB);
+        cb.scale(BQ, BQ);
+        cb.drawRect(0, 0, w, h, skyP);
+        if (glowP.getShader() != null) cb.drawRect(0, 0, w, h, glowP);
+        if (sun) rays(cb, w, h, 0);
+        if (moon) cb.drawPath(moonPath, moonP);
+        float L = w * 2f; // ширина ленты облаков — две ширины экрана, бесшовно по кругу
+        blobB = layer(w, h, LQ, 2);
+        Canvas c1 = new Canvas(blobB);
+        c1.scale(LQ, LQ);
+        clouds(c1, w, h, L);
+        if (sky == Weather.Sky.CLOUDY || sky == Weather.Sky.FOG || sky == Weather.Sky.RAIN) {
+            puffB = layer(w, h, LQ, 2);
+            Canvas c2 = new Canvas(puffB);
+            c2.scale(LQ, LQ);
+            puffs(c2, w, h, L);
+        }
+        if (sky == Weather.Sky.FOG) {
+            fogB = layer(w, h, LQ, 2);
+            Canvas c3 = new Canvas(fogB);
+            c3.scale(LQ, LQ);
+            fog(c3, w, h, L);
+        }
+    }
+
+    /** Лента шириной 2w, сдвинутая на speed·t, по кругу. */
+    private void strip(Canvas c, android.graphics.Bitmap bm, int w, int h, float t, float speed, int alpha) {
+        if (bm == null) return;
+        float L = w * 2f;
+        float off = ((t * speed) % L + L) % L;
+        bmpP.setAlpha(alpha);
+        for (float x0 : new float[]{off - L, off}) {
+            if (x0 > w || x0 + L < 0) continue;
+            dst.set(x0, 0, x0 + L, h);
+            c.drawBitmap(bm, null, dst, bmpP);
+        }
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        super.onDetachedFromWindow();
+        recycleLayers();
+        cw = -1;
+    }
+
     @Override
     protected void onDraw(Canvas c) {
         int w = getWidth(), h = getHeight();
         if (w == 0 || h == 0) return;
         checkForce();
         if (dirty) buildScene();
-        if (cw != w || ch != h) buildShaders(w, h);
+        if (cw != w || ch != h) { buildShaders(w, h); buildLayers(w, h); }
         // своё время: после паузы не прыгаем вперёд, а продолжаем с того же места
         long now = SystemClock.uptimeMillis();
         if (lastDraw != 0) tAcc += Math.min(now - lastDraw, 50) / 1000f;
         lastDraw = now;
         float t = tAcc;
 
-        c.drawRect(0, 0, w, h, skyP);
-        if (glowP.getShader() != null) c.drawRect(0, 0, w, h, glowP);
-        if (sun) rays(c, w, h, t);
+        dst.set(0, 0, w, h);
+        bmpP.setAlpha(255);
+        c.drawBitmap(baseB, null, dst, bmpP);
         if (starN > 0) stars(c, w, h, t);
-        if (moon) {
-            c.drawPath(moonPath, moonP);
-        }
-        clouds(c, w, h, t);
-        if (sky == Weather.Sky.CLOUDY || sky == Weather.Sky.FOG || sky == Weather.Sky.RAIN) puffs(c, w, h, t);
+        strip(c, blobB, w, h, t, sky == Weather.Sky.STORM ? 38 : 12, 255);
+        strip(c, puffB, w, h, t, 24, 255);
         if (sky == Weather.Sky.STORM) flash(c, w, h, t);
-        if (sky == Weather.Sky.FOG) fog(c, w, h, t);
+        if (fogB != null) {
+            strip(c, fogB, w, h, t, 16, 255);
+            strip(c, fogB, w, h, t + 40, -11, 150); // второй слой — навстречу
+        }
         if (rainN > 0) rain(c, w, h, t);
         if (snowN > 0) snow(c, w, h, t);
         c.drawRect(0, 0, w, h, shadeP);
@@ -312,77 +378,83 @@ final class SkyView extends View {
         }
     }
 
-    private void clouds(Canvas c, int w, int h, float t) {
+    private void clouds(Canvas c, int w, int h, float L) {
         Random r = cloudRnd;
         r.setSeed(7);
-        float span = w * 1.5f;
-        for (int i = 0; i < blobs; i++) {
-            float speed = (sky == Weather.Sky.STORM ? 40 : 16) + r.nextFloat() * 22;
-            float bx = (r.nextFloat() * span + t * speed) % span - w * 0.25f;
-            float by = r.nextFloat() * h * (sky == Weather.Sky.FOG ? 1f : 0.7f) + (float) Math.sin(t * 0.2f + i) * h * 0.02f;
+        int n = Math.round(blobs * 1.4f); // лента вдвое шире экрана
+        for (int i = 0; i < n; i++) {
+            r.nextFloat();
+            float bx = r.nextFloat() * L;
+            float by = r.nextFloat() * h * (sky == Weather.Sky.FOG ? 1f : 0.7f);
             float rad = h * (0.2f + r.nextFloat() * 0.32f);
             Paint bp = i % 3 == 2 ? blobLightP : blobP;
             bp.setAlpha((int) (255 * blobAlpha * (0.6f + r.nextFloat() * 0.4f) * (bp == blobLightP ? 0.85f : 1f)));
-            c.save();
-            c.translate(bx, by);
-            c.scale(rad * 1.7f, rad * 0.75f);
-            c.drawCircle(0, 0, 1f, bp);
-            c.restore();
-        }
-    }
-
-    /** Кучевые тучи: каждая — гроздь мягких кругов (светлый верх) над тёмной «подошвой». Плывут с разной скоростью. */
-    private void puffs(Canvas c, int w, int h, float t) {
-        Random r = cloudRnd;
-        r.setSeed(23);
-        boolean fogSky = sky == Weather.Sky.FOG;
-        int n = fogSky ? 4 : 6;
-        float span = w * 1.8f;
-        for (int i = 0; i < n; i++) {
-            float depth = 0.5f + r.nextFloat() * 0.5f;           // ближние крупнее и быстрее
-            float cx = (r.nextFloat() * span + t * (12 + 26 * depth)) % span - w * 0.4f;
-            float cy = h * (0.08f + r.nextFloat() * (fogSky ? 0.5f : 0.42f));
-            float size = h * (0.13f + 0.12f * depth);
-            // тень под тучей
-            shadowP.setAlpha((int) (255 * (fogSky ? 0.35f : 0.6f) * depth));
-            c.save();
-            c.translate(cx, cy + size * 0.55f);
-            c.scale(size * 2.6f, size * 0.55f);
-            c.drawCircle(0, 0, 1f, shadowP);
-            c.restore();
-            // гроздь
-            int k = 5 + r.nextInt(3);
-            for (int j = 0; j < k; j++) {
-                float ox = (j - (k - 1) / 2f) * size * 0.62f + (r.nextFloat() - 0.5f) * size * 0.3f;
-                float oy = -(float) Math.sin(Math.PI * (j + 0.5f) / k) * size * 0.55f + (r.nextFloat() - 0.5f) * size * 0.2f;
-                float rr = size * (0.55f + r.nextFloat() * 0.45f) * (1f - Math.abs(j - (k - 1) / 2f) / k * 0.6f);
-                puffP.setAlpha((int) (255 * (fogSky ? 0.45f : 0.62f) * depth));
+            for (float x : new float[]{bx - L, bx, bx + L}) {
                 c.save();
-                c.translate(cx + ox, cy + oy + (float) Math.sin(t * 0.3f + i + j) * size * 0.03f);
-                c.scale(rr * 1.25f, rr);
-                c.drawCircle(0, 0, 1f, puffP);
+                c.translate(x, by);
+                c.scale(rad * 1.7f, rad * 0.75f);
+                c.drawCircle(0, 0, 1f, bp);
                 c.restore();
             }
         }
     }
 
-    private void fog(Canvas c, int w, int h, float t) {
-        // плотные слои, медленно идут в разные стороны; внизу гуще
+    /** Кучевые тучи: каждая — гроздь мягких кругов (светлый верх) над тёмной «подошвой». Плывут с разной скоростью. */
+    private void puffs(Canvas c, int w, int h, float L) {
+        Random r = cloudRnd;
+        r.setSeed(23);
+        boolean fogSky = sky == Weather.Sky.FOG;
+        int n = fogSky ? 6 : 9;
+        for (int i = 0; i < n; i++) {
+            float depth = 0.5f + r.nextFloat() * 0.5f;
+            float cx0 = r.nextFloat() * L;
+            float cy = h * (0.08f + r.nextFloat() * (fogSky ? 0.5f : 0.42f));
+            float size = h * (0.13f + 0.12f * depth);
+            int k = 5 + r.nextInt(3);
+            float[] ox = new float[k], oy = new float[k], rr = new float[k];
+            for (int j = 0; j < k; j++) {
+                ox[j] = (j - (k - 1) / 2f) * size * 0.62f + (r.nextFloat() - 0.5f) * size * 0.3f;
+                oy[j] = -(float) Math.sin(Math.PI * (j + 0.5f) / k) * size * 0.55f + (r.nextFloat() - 0.5f) * size * 0.2f;
+                rr[j] = size * (0.55f + r.nextFloat() * 0.45f) * (1f - Math.abs(j - (k - 1) / 2f) / k * 0.6f);
+            }
+            for (float cx : new float[]{cx0 - L, cx0, cx0 + L}) {
+                // тень под тучей
+                shadowP.setAlpha((int) (255 * (fogSky ? 0.35f : 0.6f) * depth));
+                c.save();
+                c.translate(cx, cy + size * 0.55f);
+                c.scale(size * 2.6f, size * 0.55f);
+                c.drawCircle(0, 0, 1f, shadowP);
+                c.restore();
+                puffP.setAlpha((int) (255 * (fogSky ? 0.45f : 0.62f) * depth));
+                for (int j = 0; j < k; j++) {
+                    c.save();
+                    c.translate(cx + ox[j], cy + oy[j]);
+                    c.scale(rr[j] * 1.25f, rr[j]);
+                    c.drawCircle(0, 0, 1f, puffP);
+                    c.restore();
+                }
+            }
+        }
+    }
+
+    private void fog(Canvas c, int w, int h, float L) {
+        // плотные слои; внизу гуще. Лента шириной L, по кругу
+        Random r = cloudRnd;
+        r.setSeed(31);
         for (int i = 0; i < 8; i++) {
             float y = h * (0.18f + i * 0.11f);
-            float dir = i % 2 == 0 ? 1f : -1f;
-            float x = ((t * (14 + i * 7) * dir) % (w * 1.6f) + w * 1.6f) % (w * 1.6f) - w * 0.3f;
             fogP.setAlpha(Math.min(255, 140 + i * 16));
-            c.save();
-            c.translate(x, y);
-            c.scale(w * 0.8f, h * (0.1f + i * 0.012f));
-            c.drawCircle(0, 0, 1f, fogP);
-            c.restore();
-            c.save();
-            c.translate(x - w * 1.15f, y + h * 0.04f);
-            c.scale(w * 0.72f, h * (0.09f + i * 0.01f));
-            c.drawCircle(0, 0, 1f, fogP);
-            c.restore();
+            for (int m = 0; m < 3; m++) {
+                float x0 = r.nextFloat() * L;
+                float sw = w * (0.6f + r.nextFloat() * 0.35f), sh = h * (0.09f + i * 0.012f);
+                for (float x : new float[]{x0 - L, x0, x0 + L}) {
+                    c.save();
+                    c.translate(x, y + (m - 1) * h * 0.02f);
+                    c.scale(sw, sh);
+                    c.drawCircle(0, 0, 1f, fogP);
+                    c.restore();
+                }
+            }
         }
     }
 
