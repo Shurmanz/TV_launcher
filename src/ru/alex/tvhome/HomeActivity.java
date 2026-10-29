@@ -269,7 +269,21 @@ public class HomeActivity extends Activity {
         tileH = Math.round(tileW * 9f / 16f);
         glow.setTile(tileW, tileH, dp(14), FOCUS);
 
-        scroll = new ScrollView(this);
+        // прокрутку сетки ведём сами (см. onTileFocused): плитки не «подпрыгивают» от фокуса,
+        // а «вниз» с нижнего ряда ничего не двигает
+        scroll = new ScrollView(this) {
+            @Override protected int computeScrollDeltaToGetChildRectOnScreen(android.graphics.Rect r) { return 0; }
+            @Override public boolean executeKeyEvent(KeyEvent e) {
+                int k = e.getKeyCode();
+                if (k == KeyEvent.KEYCODE_DPAD_DOWN || k == KeyEvent.KEYCODE_DPAD_UP) {
+                    View cur = findFocus();
+                    View next = cur == null ? null : android.view.FocusFinder.getInstance().findNextFocus(this, cur,
+                            k == KeyEvent.KEYCODE_DPAD_DOWN ? View.FOCUS_DOWN : View.FOCUS_UP);
+                    if (next == null) return k == KeyEvent.KEYCODE_DPAD_DOWN; // вниз — никуда; вверх — к кнопкам
+                }
+                return super.executeKeyEvent(e);
+            }
+        };
         scroll.setVerticalScrollBarEnabled(false);
         scroll.setClipChildren(false);
         scroll.setClipToPadding(false);
@@ -532,7 +546,16 @@ public class HomeActivity extends Activity {
         glow.moveTo(a[0] - b[0] + card.getWidth() / 2f, a[1] - b[1] + card.getHeight() / 2f, glowColor);
     }
 
+    /** Два ряда — сетка стоит. Три и больше — ряд над выбранным виден, верхние ряды уезжают вверх целиком. */
+    private void scrollToRow(int row) {
+        if (grid.getChildCount() < 2) { scroll.smoothScrollTo(0, 0); return; }
+        int step = grid.getChildAt(1).getTop() - grid.getChildAt(0).getTop();
+        int target = row >= 2 ? (row - 1) * step : 0;
+        if (scroll.getScrollY() != target) scroll.smoothScrollTo(0, target);
+    }
+
     private void onTileFocused(View card, Apps.App app, int index) {
+        scrollToRow(index / COLS);
         card.post(() -> {
             int[] a = new int[2], b = new int[2];
             card.getLocationInWindow(a);
