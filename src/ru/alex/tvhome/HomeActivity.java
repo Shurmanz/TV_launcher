@@ -151,10 +151,14 @@ public class HomeActivity extends Activity {
             dblAt = 0;
             lastHomeIntent = now;
         }
+        // сразу после обновления система ещё раз шлёт «главный экран» — не закрывать только что открытое «Что нового»
+        if (panel != null && whatsNewAt != 0 && android.os.SystemClock.elapsedRealtime() - whatsNewAt < 3000) return;
         closePanel();
         if (moving != null) endMove();
         focusFirstTile();
     }
+
+    private long whatsNewAt;
 
     @Override
     protected void onDestroy() {
@@ -718,6 +722,7 @@ public class HomeActivity extends Activity {
         LinearLayout upd = new LinearLayout(this);
         boolean avail = Updater.available(this);
         View first = addAction(upd, avail ? "Обновить до " + Updater.remoteName(this) : "Проверить обновление", () -> runUpdate(p));
+        addAction(upd, "Что нового", () -> { closePanel(); root.postDelayed(this::openWhatsNew, 200); });
         section(p, "Обновление", avail ? "Доступна новая версия " + Updater.remoteName(this) + "."
                 : "Установлена последняя проверенная версия.", upd);
 
@@ -1405,6 +1410,7 @@ public class HomeActivity extends Activity {
 
     private void openWhatsNew() {
         if (panel != null) return;
+        whatsNewAt = android.os.SystemClock.elapsedRealtime();
         Panel p = new Panel(this, "Что нового в Slauncher " + Updater.myName(this), null);
         TextView t = infoLine(Comfort.WHATS_NEW);
         t.setLineSpacing(dp(4), 1f);
@@ -1415,7 +1421,10 @@ public class HomeActivity extends Activity {
         rl.topMargin = dp(18);
         p.body.addView(row, rl);
         showPanel(p, ok);
+        whatsPanel = p;
     }
+
+    private View whatsPanel;
 
     private void openHaSetup() {
         Panel p = new Panel(this, "Home Assistant", "Откройте на телефоне в той же Wi‑Fi сети:");
@@ -1560,6 +1569,7 @@ public class HomeActivity extends Activity {
         HaSetupServer.stop();
         Transfer.stop();
         if (panel == null) return;
+        if (panel == whatsPanel) { Comfort.whatsNewSeen(this); whatsPanel = null; } // закрыли «Понятно» или «Назад»
         final View o = panel;
         panel = null;
         content.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
