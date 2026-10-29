@@ -94,10 +94,36 @@ public class HomeKeyService extends AccessibilityService {
             new android.os.Handler(android.os.Looper.getMainLooper())
                     .postDelayed(() -> openHome(SystemClock.elapsedRealtime()), 1500);
             openStart(3500); // после загрузки — любимое приложение поверх главного экрана
+            wifiWatch(60_000L, 2);
         }
         android.content.IntentFilter f = new android.content.IntentFilter(Intent.ACTION_SCREEN_OFF);
         f.addAction(Intent.ACTION_SCREEN_ON);
         try { registerReceiver(screen, f); } catch (Exception ignored) { }
+    }
+
+    /**
+     * Подстраховка Wi‑Fi после загрузки: роутер с WPA3 иногда отбивает первую попытку, и ТВ больше не пробует,
+     * а просит пароль. Если через минуту сети нет — выключаем и включаем Wi‑Fi (тот же сохранённый пароль).
+     */
+    private void wifiWatch(long delay, int attempts) {
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+            if (online() || !Adb.known(this)) return;
+            android.net.wifi.WifiManager wm = (android.net.wifi.WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE);
+            if (wm == null || !wm.isWifiEnabled()) return; // Wi‑Fi выключен руками — не трогаем
+            android.util.Log.i(Net.TAG, "wifi watch: нет сети после загрузки, перезапускаю Wi-Fi");
+            new Thread(() -> {
+                try { Adb.sh(this, "svc wifi disable; sleep 3; svc wifi enable"); } catch (Exception e) { Net.log("wifi watch", e); }
+            }).start();
+            if (attempts > 1) wifiWatch(90_000L, attempts - 1);
+        }, delay);
+    }
+
+    private boolean online() {
+        try {
+            android.net.ConnectivityManager cm = (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+            android.net.Network n = cm.getActiveNetwork();
+            return n != null && cm.getNetworkCapabilities(n) != null;
+        } catch (Exception e) { return true; }
     }
 
     /** Не наши «главные экраны»: пакет → классы их домашних активити. Google TV, Android TV Home, PatchWall Xiaomi и т.д. */
