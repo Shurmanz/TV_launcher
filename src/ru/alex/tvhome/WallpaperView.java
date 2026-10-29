@@ -42,6 +42,7 @@ final class WallpaperView extends FrameLayout {
     private boolean running, busy;
     private String current, pending;
     private long lastChange; // SystemClock.elapsedRealtime() последней смены
+    private SkyView skyView; // режим «Живая погода» вместо фото
 
     WallpaperView(Context ctx, long intervalMs) {
         super(ctx);
@@ -73,9 +74,44 @@ final class WallpaperView extends FrameLayout {
         if (running) schedule();
     }
 
+    boolean isSky() { return skyView != null; }
+
+    /** Переключить фон: true — «Живая погода», false — фото природы. */
+    void setSky(boolean on) {
+        if (on == isSky()) return;
+        if (on) {
+            skyView = new SkyView(getContext());
+            addView(skyView, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            updateSky();
+            skyView.setRunning(running);
+            front.animate().setListener(null).cancel();
+            back.animate().setListener(null).cancel();
+            front.setImageDrawable(null); // фото в памяти больше не нужны
+            back.setImageDrawable(null);
+            current = null;
+        } else {
+            skyView.setRunning(false);
+            removeView(skyView);
+            skyView = null;
+            if (running) { showCached(); ui.removeCallbacks(tick); ui.post(tick); }
+        }
+    }
+
+    private void updateSky() {
+        if (skyView == null) return;
+        Weather w = lastWeather;
+        skyView.setScene(Weather.phase(w, System.currentTimeMillis()), Weather.sky(w), w == null ? 3 : w.code);
+    }
+
     void start() {
         if (running) return;
         running = true;
+        if (skyView != null) {
+            skyView.setRunning(true);
+            updateSky();
+            ui.post(tick);
+            return;
+        }
         if (front.getDrawable() == null) {
             showCached();
             ui.post(tick);
@@ -86,6 +122,7 @@ final class WallpaperView extends FrameLayout {
 
     void stop() {
         running = false;
+        if (skyView != null) skyView.setRunning(false);
         ui.removeCallbacks(tick);
     }
 
@@ -112,7 +149,7 @@ final class WallpaperView extends FrameLayout {
         next();
     }
 
-    boolean hasPhoto() { return current != null; }
+    boolean hasPhoto() { return current != null && skyView == null; }
 
     /** Только погода, без смены фото: повтор после ошибки и при появлении сети. */
     private final Runnable weatherRetry = this::refreshWeather;
@@ -127,7 +164,7 @@ final class WallpaperView extends FrameLayout {
             try {
                 Weather fw = Weather.fetch();
                 lastWeather = fw;
-                ui.post(() -> { for (Listener l : listeners) l.onWeather(fw); });
+                ui.post(() -> { for (Listener l : listeners) l.onWeather(fw); updateSky(); });
                 android.util.Log.i(Net.TAG, "weather retry ok: " + fw.describe());
             } catch (Exception e) {
                 Net.log("weather retry", e);
@@ -157,7 +194,7 @@ final class WallpaperView extends FrameLayout {
         bg.execute(() -> {
             File f = walls.anyCached();
             Bitmap bm = f == null ? null : decode(f);
-            if (bm != null) ui.post(() -> { if (front.getDrawable() == null) crossfade(bm, null); });
+            if (bm != null) ui.post(() -> { if (front.getDrawable() == null && skyView == null) crossfade(bm, null); });
         });
     }
 
@@ -175,7 +212,7 @@ final class WallpaperView extends FrameLayout {
                         w = Weather.fetch();
                         lastWeather = w;
                         final Weather fw = w;
-                        ui.post(() -> { for (Listener l : listeners) l.onWeather(fw); });
+                        ui.post(() -> { for (Listener l : listeners) l.onWeather(fw); updateSky(); });
                         android.util.Log.i(Net.TAG, "weather ok: " + fw.describe() + " | " + fw.hint()
                                 + " | hours " + fw.hours.size() + ", days " + fw.days.size());
                     } catch (Exception e) {
@@ -183,6 +220,7 @@ final class WallpaperView extends FrameLayout {
                         ui.postDelayed(weatherRetry, 30_000); // сеть после загрузки ТВ ещё не готова — повторим скоро
                     }
                 }
+                if (skyView != null) { ui.post(this::updateSky); return; } // живой фон: фото не качаем
                 Weather.Phase p = Weather.phase(lastWeather, System.currentTimeMillis());
                 Weather.Sky s = Weather.sky(lastWeather);
                 String key = Wallpapers.sceneKey(p, s);
@@ -208,7 +246,7 @@ final class WallpaperView extends FrameLayout {
                 final String fu = used;
                 ui.post(() -> {
                     busy = false;
-                    if (res != null && running) crossfade(res, fu);
+                    if (res != null && running && skyView == null) crossfade(res, fu);
                 });
             }
         });

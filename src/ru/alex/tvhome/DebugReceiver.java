@@ -13,6 +13,7 @@ import java.util.List;
  *   am broadcast -a ru.alex.tvhome.DEBUG -n ru.alex.tvhome/.DebugReceiver --ez weather true
  *   am broadcast -a ru.alex.tvhome.DEBUG -n ru.alex.tvhome/.DebugReceiver --ez reset true   (сброс кеша списков фото)
  *   am broadcast ... --es tpl0 "%s incategory:Landscapes"   (свой шаблон поиска; %s — ключевые слова)
+ *   am broadcast ... --es sky "NIGHT/SNOW/73"   (живой фон: показать сцену; --es sky "" — настоящая погода)
  * Принимает только от shell/root (adb).
  */
 public class DebugReceiver extends BroadcastReceiver {
@@ -51,6 +52,10 @@ public class DebugReceiver extends BroadcastReceiver {
                     long[] sun = Weather.sunTimes(System.currentTimeMillis());
                     Log.i(Net.TAG, "debug sun: " + new java.util.Date(sun[0]) + " / " + new java.util.Date(sun[1])
                             + " phase=" + Weather.phase(null, System.currentTimeMillis()));
+                }
+                if (intent.hasExtra("sky")) {
+                    SkyView.force = intent.getStringExtra("sky") == null ? "" : intent.getStringExtra("sky");
+                    Log.i(Net.TAG, "debug: sky force = " + SkyView.force);
                 }
                 if (intent.getBooleanExtra("inputs", false)) {
                     for (TvInputs.In in : TvInputs.list(app)) {

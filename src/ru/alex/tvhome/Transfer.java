@@ -54,6 +54,7 @@ final class Transfer {
         o.put("city", new JSONObject().put("auto", Loc.auto(c)).put("name", Loc.name(c))
                 .put("lat", loc.getFloat("lat", 59.127f)).put("lon", loc.getFloat("lon", 37.909f)));
         o.put("start_app", Comfort.startPkg(c));
+        o.put("background", Comfort.bgSky(c) ? "sky" : "photo");
         String anim = Settings.Global.getString(c.getContentResolver(), Settings.Global.WINDOW_ANIMATION_SCALE);
         o.put("animations", anim == null ? "1.0" : anim);
         PackageManager pm = c.getPackageManager();
@@ -108,6 +109,7 @@ final class Transfer {
             if (city.optBoolean("auto", true)) Loc.setAuto(c);
             else Loc.setManual(c, new Loc.City(city.optString("name"), "", city.optDouble("lat"), city.optDouble("lon")));
         }
+        if (o.has("background")) Comfort.setBgSky(c, "sky".equals(o.optString("background")));
         String start = o.optString("start_app", "");
         if (start.isEmpty() || Comfort.launchIntent(c, start) != null) Comfort.setStartPkg(c, start);
         JSONObject ha = o.optJSONObject("home_assistant");

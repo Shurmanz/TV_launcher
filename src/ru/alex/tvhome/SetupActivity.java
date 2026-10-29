@@ -171,6 +171,7 @@ public class SetupActivity extends Activity {
         list.removeAllViews();
         firstButton = null;
         View firstMissing = null;
+        list.addView(bgRow());
         for (Step s : steps()) {
             if (s == null) continue;
             View row = row(s);
@@ -179,6 +180,53 @@ public class SetupActivity extends Activity {
         }
         View f = firstMissing != null ? firstMissing : firstButton;
         if (f != null) f.requestFocus();
+    }
+
+    /** Выбор фона главного экрана: фото природы или «Живая погода». */
+    private View bgRow() {
+        boolean sky = Comfort.bgSky(this);
+        LinearLayout r = new LinearLayout(this);
+        r.setOrientation(LinearLayout.HORIZONTAL);
+        r.setGravity(Gravity.CENTER_VERTICAL);
+        r.setPadding(Ui.dp(this, 16), Ui.dp(this, 9), Ui.dp(this, 14), Ui.dp(this, 9));
+        r.setBackground(Ui.round(0x14FFFFFF, Ui.dp(this, 18), Ui.dp(this, 1), 0x1FFFFFFF));
+        TextView mark = Ui.text(this, 20, 600, 0xFF0A84FF);
+        mark.setShadowLayer(0, 0, 0, 0);
+        mark.setText("◐");
+        mark.setGravity(Gravity.CENTER);
+        r.addView(mark, new LinearLayout.LayoutParams(Ui.dp(this, 34), ViewGroup.LayoutParams.WRAP_CONTENT));
+        LinearLayout txt = new LinearLayout(this);
+        txt.setOrientation(LinearLayout.VERTICAL);
+        TextView t = Ui.text(this, 16, 500, 0xFFFFFFFF);
+        t.setShadowLayer(0, 0, 0, 0);
+        t.setText("Фон главного экрана");
+        txt.addView(t);
+        TextView d = Ui.text(this, 12, 400, 0x99FFFFFF);
+        d.setShadowLayer(0, 0, 0, 0);
+        d.setText(sky ? "Живая погода: дождь льётся, снег падает, туман плывёт — под погоду и время суток."
+                : "Фото природы под время суток, сезон и погоду. Можно сменить потом в «Удобстве».");
+        LinearLayout.LayoutParams dl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        dl.topMargin = Ui.dp(this, 2);
+        txt.addView(d, dl);
+        r.addView(txt, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        for (int i = 0; i < 2; i++) {
+            final boolean v = i == 1;
+            TextView b = Panel.action(this, (v == sky ? "✓ " : "") + (v ? "Живая погода" : "Фото природы"), () -> {
+                Comfort.setBgSky(this, v);
+                build();
+                // фокус остаётся на ряду фона
+                View again = list.getChildAt(0).findViewWithTag(v ? "bg1" : "bg0");
+                if (again != null) again.requestFocus();
+            });
+            b.setTag(v ? "bg1" : "bg0");
+            LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            bp.leftMargin = Ui.dp(this, i == 0 ? 14 : 10);
+            r.addView(b, bp);
+        }
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.bottomMargin = Ui.dp(this, 7);
+        r.setLayoutParams(lp);
+        return r;
     }
 
     private View row(Step s) {

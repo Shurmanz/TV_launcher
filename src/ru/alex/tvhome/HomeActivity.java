@@ -102,6 +102,7 @@ public class HomeActivity extends Activity {
         super.onResume();
         resumed = true;
         reloadApps();
+        wall.setSky(Comfort.bgSky(this));
         wall.start();
         updateNet();
         HaReceiver.listener = () -> { if (haCorner != null) haCorner.refresh(); };
@@ -1201,6 +1202,13 @@ public class HomeActivity extends Activity {
         String sp = Comfort.startPkg(this);
         section(p, "При включении открывать", sp.isEmpty() ? "Главный экран Slauncher." : label(sp) + " (кнопка «Домой» — в Slauncher).", st);
 
+        LinearLayout bgr = new LinearLayout(this);
+        boolean skyOn = Comfort.bgSky(this);
+        addAction(bgr, (skyOn ? "" : "✓ ") + "Фото природы", () -> setHomeBackground(false));
+        addAction(bgr, (skyOn ? "✓ " : "") + "Живая погода", () -> setHomeBackground(true));
+        section(p, "Фон главного экрана", skyOn ? "Живая погода: дождь, снег, туман — под погоду и время суток."
+                : "Фото природы под время суток, сезон и погоду.", bgr);
+
         LinearLayout tr = new LinearLayout(this);
         addAction(tr, "Сохранить", () -> bg(p, "сохраняю…", () -> Transfer.save(this), n -> {
             Toast.makeText(this, "Сохранено: " + n + (Adb.known(this) ? " (Slauncher/settings)" : ""), Toast.LENGTH_LONG).show();
@@ -1208,7 +1216,7 @@ public class HomeActivity extends Activity {
         }));
         addAction(tr, "Загрузить…", this::openTransferLoad);
         addAction(tr, "С телефона", this::openTransferPhone);
-        section(p, "Перенос настроек", "Плитки, город, Home Assistant, отключённые приложения — файлом на другой ТВ.", tr);
+        section(p, "Перенос настроек", "Плитки, город, Home Assistant, фон — на другой ТВ.", tr);
 
         LinearLayout back = new LinearLayout(this);
         addAction(back, "Вернуть как было…", () -> {
@@ -1219,6 +1227,12 @@ public class HomeActivity extends Activity {
         section(p, "Вернуть как было", "Убрать Slauncher и все его изменения с телевизора.", back);
         if (!adb) p.count.setText("часть функций — после «Оптимизация → Подключить»");
         showPanel(p, first);
+    }
+
+    private void setHomeBackground(boolean sky) {
+        Comfort.setBgSky(this, sky);
+        wall.setSky(sky);
+        openComfort();
     }
 
     private boolean boosting;
@@ -1512,6 +1526,7 @@ public class HomeActivity extends Activity {
     }
 
     private void nextPhoto() {
+        if (wall.isSky()) return; // живой фон — фото нет
         wall.next();
         Toast.makeText(this, "Следующее фото", Toast.LENGTH_SHORT).show();
     }
@@ -1581,8 +1596,10 @@ public class HomeActivity extends Activity {
                 reloadApps();
             });
         }
-        View next = addAction(actions, "Следующее фото", () -> { closePanel(); nextPhoto(); });
-        if (firstAction == null) firstAction = next;
+        if (!wall.isSky()) {
+            View next = addAction(actions, "Следующее фото", () -> { closePanel(); nextPhoto(); });
+            if (firstAction == null) firstAction = next;
+        }
         if (wall.hasPhoto()) {
             addAction(actions, "Скрыть это фото навсегда", () -> {
                 closePanel();

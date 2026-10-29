@@ -112,6 +112,12 @@ final class Comfort {
     static String gb(long bytes) { return String.format(new java.util.Locale("ru"), "%.1f ГБ", bytes / 1073741824.0); }
     static String mb(long bytes) { return (bytes / 1048576) + " МБ"; }
 
+    // ---------- фон главного экрана ----------
+
+    /** true — «Живая погода» (абстрактный анимированный фон), false — фото природы. */
+    static boolean bgSky(Context c) { return "sky".equals(p(c).getString("bg", "photo")); }
+    static void setBgSky(Context c, boolean on) { p(c).edit().putString("bg", on ? "sky" : "photo").apply(); }
+
     // ---------- старт с приложения и прошлое приложение ----------
 
     static String startPkg(Context c) { return p(c).getString("start_pkg", ""); }
@@ -172,7 +178,9 @@ final class Comfort {
     // ---------- что нового ----------
 
     static final String WHATS_NEW =
-            "• Плитки как в Apple TV: в фокусе крупнее, с тенью, бликом «стекла» и лёгким наклоном.\n"
+            "• Новый фон «Живая погода»: дождь льётся, снег падает, туман плывёт — под погоду и время суток. "
+                    + "Выбор «Фото / Погода» — в Настройки Slauncher → «Удобство».\n"
+                    + "• Плитки как в Apple TV: в фокусе крупнее, с тенью, бликом «стекла» и лёгким наклоном.\n"
                     + "• Плашка внизу экрана, когда выходит новая версия.\n"
                     + "• Настройки Slauncher → «Удобство»: таймер сна, освобождение памяти, старт с любимого приложения, "
                     + "перенос настроек на другой телевизор (файлом или с телефона), «Вернуть как было».\n"

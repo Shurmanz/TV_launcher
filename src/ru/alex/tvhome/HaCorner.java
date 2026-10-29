@@ -13,7 +13,7 @@ import java.util.Locale;
 
 /**
  * Правый верхний угол: климат по комнатам из Home Assistant.
- * Строка данных: «bed:22.7,41,436/liv:25.6,37/kit:24.0,48/bal:11.5,72» (temp,hum[,co2]; «-» — нет данных).
+ * Строка данных: «bed:22.7,41,436/liv:25.6,37/kit:24.0,48/bal:11.5,72» (temp,hum[,co2 — не показываем]; «-» — нет данных).
  */
 final class HaCorner extends LinearLayout {
     private static final String[][] ROOMS = {
@@ -57,14 +57,6 @@ final class HaCorner extends LinearLayout {
         sb.setSpan(new ForegroundColorSpan(0xB3FFFFFF), s0, sb.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         sb.append(temp(v.length > 0 ? v[0] : "-"));
         sb.append("  ·  ").append(num(v.length > 1 ? v[1] : "-", 0)).append('%');
-        if (v.length > 2) {
-            sb.append("  ·  CO₂ ");
-            int c0 = sb.length();
-            String co2 = num(v[2], 0);
-            sb.append(co2);
-            int color = co2Color(v[2]);
-            if (color != 0) sb.setSpan(new ForegroundColorSpan(color), c0, sb.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        }
         LayoutParams lp = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
         lp.gravity = Gravity.END;
         lp.topMargin = getChildCount() == 0 ? 0 : Ui.dp(getContext(), 6);
@@ -86,12 +78,4 @@ final class HaCorner extends LinearLayout {
         catch (Exception e) { return "—"; }
     }
 
-    private static int co2Color(String s) {
-        try {
-            double d = Double.parseDouble(s);
-            if (d >= 1400) return 0xFFFF6B5E;
-            if (d >= 1000) return 0xFFFFD60A;
-        } catch (Exception ignored) { }
-        return 0;
-    }
 }
