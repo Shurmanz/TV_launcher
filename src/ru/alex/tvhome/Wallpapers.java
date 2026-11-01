@@ -268,7 +268,8 @@ final class Wallpapers {
         String url = "https://commons.wikimedia.org/w/api.php?action=query&format=json&formatversion=2"
                 + "&generator=search&gsrnamespace=6&gsrlimit=50&gsroffset=" + offset
                 + "&gsrsearch=" + Uri.encode(search)
-                + "&prop=imageinfo&iiprop=url%7Csize%7Cmime&iiurlwidth=1920";
+                + "&prop=imageinfo&iiprop=url%7Csize%7Cmime%7Cextmetadata&iiurlwidth=1920"
+                + "&iiextmetadatafilter=GPSLatitude%7CGPSLongitude%7CObjectName";
         return new JSONObject(Net.getText(url));
     }
 
@@ -301,7 +302,10 @@ final class Wallpapers {
             String thumb = wm(info.optString("thumburl", ""));
             String orig = wm(info.optString("url", ""));
             if (thumb.isEmpty()) thumb = orig;
-            if (!thumb.isEmpty()) res.add(orig.isEmpty() || orig.equals(thumb) ? thumb : thumb + "\t" + orig);
+            if (!thumb.isEmpty()) {
+                String e = orig.isEmpty() || orig.equals(thumb) ? thumb : thumb + "\t" + orig;
+                res.add(e + meta(info.optJSONObject("extmetadata"), page.optString("title", "")));
+            }
             else { noThumb++; if (sample == null) sample = info.toString(); }
         }
         android.util.Log.i(Net.TAG, "commons t" + tier + " [" + query + "]: " + seen + " files, " + res.size()
@@ -320,12 +324,122 @@ final class Wallpapers {
         return "https".equals(p.getScheme()) && host != null && host.endsWith(".wikimedia.org") ? u : "";
     }
 
-    /** Файл картинки в кеше (скачивает при необходимости). Запись: "превью[\tоригинал]". Вызывать в фоне. */
+    // ---------- подпись «где снято» ----------
+
+    /**
+     * Доп. поля записи: "\t@широта,долгота" (откуда снято) и "\t#название" (как назвал автор).
+     * Запись: "превью[\tоригинал][\t@lat,lon][\t#title]".
+     */
+    private static String meta(JSONObject em, String fileTitle) {
+        StringBuilder sb = new StringBuilder();
+        if (em != null) {
+            try {
+                double lat = Double.parseDouble(metaValue(em, "GPSLatitude"));
+                double lon = Double.parseDouble(metaValue(em, "GPSLongitude"));
+                if (Math.abs(lat) > 0.01 || Math.abs(lon) > 0.01)
+                    sb.append("\t@").append(String.format(Locale.ROOT, "%.4f,%.4f", lat, lon));
+            } catch (Exception ignored) { }
+        }
+        String name = cleanTitle(em == null ? "" : metaValue(em, "ObjectName"));
+        if (name.isEmpty()) name = cleanTitle(fileTitle);
+        if (!name.isEmpty()) sb.append("\t#").append(name.replace('\t', ' ').replace('\n', ' '));
+        return sb.toString();
+    }
+
+    private static String metaValue(JSONObject em, String k) {
+        JSONObject o = em.optJSONObject(k);
+        return o == null ? "" : o.optString("value", "");
+    }
+
+    /** Название файла → читаемая подпись: без "File:", расширения, дат, номеров кадров и HTML. "" — если смысла нет. */
+    static String cleanTitle(String t) {
+        if (t == null) return "";
+        t = t.replaceAll("<[^>]*>", " ").replaceFirst("^(?i)(File|Файл):", "");
+        t = t.replaceAll("(?i)\\.(jpe?g|png|tiff?|webp)$", "");
+        t = t.replace('_', ' ');
+        t = t.replaceAll("(?i)\\b(panoramio|flickr|wikimedia|commons)\\b", " ");    // источник выгрузки
+        t = t.replaceAll("\\([^)]*\\d[^)]*\\)", " ");                              // (2019), (DSC_1234)
+        t = t.replaceAll("(?i)\\b(IMG|DSC[FN]?|PXL|DJI|GOPR|P|PB|PA|PC|_MG)[ _-]?\\d{3,}\\b", " ");
+        t = t.replaceAll("\\b\\d{4}[-.]\\d{1,2}[-.]\\d{1,2}\\b", " ");             // даты
+        t = t.replaceAll("\\b\\d{3,}\\b", " ");                                     // длинные номера
+        t = t.replaceAll("\\s*[-–—,]\\s*([-–—,]\\s*)+", " - ");
+        t = t.replaceAll("\\s+", " ").trim().replaceAll("^[-–—,.\\s]+|[-–—,.\\s]+$", "");
+        int letters = 0;
+        for (char ch : t.toCharArray()) if (Character.isLetter(ch)) letters++;
+        if (letters < 5) return "";
+        return t.length() > 70 ? t.substring(0, 69).trim() + "…" : t;
+    }
+
+    private static long lastGeo;
+
+    /**
+     * Подпись для фото: место по координатам по-русски (OpenStreetMap, кешируется), иначе название от автора.
+     * null — подписать нечем. Вызывать в фоне.
+     */
+    String caption(String entry) {
+        if (entry == null) return null;
+        String coords = null, title = null;
+        for (String part : entry.split("\t")) {
+            if (part.startsWith("@")) coords = part.substring(1);
+            else if (part.startsWith("#")) title = part.substring(1);
+        }
+        if (coords != null) {
+            String place = place(coords);
+            if (place != null) return place;
+        }
+        return title == null || title.isEmpty() ? null : title;
+    }
+
+    private String place(String coords) {
+        String[] ll = coords.split(",");
+        if (ll.length != 2) return null;
+        String key;
+        try {
+            key = "geo_" + String.format(Locale.ROOT, "%.2f_%.2f", Double.parseDouble(ll[0]), Double.parseDouble(ll[1]));
+        } catch (Exception e) { return null; }
+        String cached = prefs.getString(key, null);
+        if (cached != null) return cached.isEmpty() ? null : cached;
+        try {
+            synchronized (Wallpapers.class) { // OpenStreetMap просит не чаще раза в секунду
+                long wait = lastGeo + 1100 - System.currentTimeMillis();
+                if (wait > 0) Thread.sleep(wait);
+                lastGeo = System.currentTimeMillis();
+            }
+            JSONObject o = new JSONObject(Net.getText("https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=10"
+                    + "&accept-language=ru&lat=" + ll[0] + "&lon=" + ll[1]));
+            JSONObject a = o.optJSONObject("address");
+            String res = "";
+            if (a != null) {
+                String local = first(a, "city", "town", "village", "hamlet", "municipality", "county");
+                String region = first(a, "state", "region", "province");
+                String country = a.optString("country", "");
+                // коротко: «посёлок/город, страна»; нет такого — «регион, страна»
+                List<String> parts = new ArrayList<>();
+                String where = !local.isEmpty() ? local : region;
+                if (!where.isEmpty()) parts.add(where);
+                if (!country.isEmpty() && !country.equals(where)) parts.add(country);
+                res = android.text.TextUtils.join(", ", parts);
+            }
+            prefs.edit().putString(key, res).apply();
+            return res.isEmpty() ? null : res;
+        } catch (Exception e) {
+            Net.log("geo " + coords, e);
+            return null; // сеть подвела — в следующий раз спросим снова
+        }
+    }
+
+    private static String first(JSONObject a, String... keys) {
+        for (String k : keys) { String v = a.optString(k, ""); if (!v.isEmpty()) return v; }
+        return "";
+    }
+
+    /** Файл картинки в кеше (скачивает при необходимости). Вызывать в фоне. */
     File fetch(String entry) throws Exception {
         File f = new File(dir, Integer.toHexString(entry.hashCode()) + ".jpg");
         if (!f.exists()) {
             Exception last = null;
             for (String url : entry.split("\t")) {
+                if (!url.startsWith("https://")) continue; // доп. поля (@координаты, #название)
                 try { Net.download(url, f); last = null; break; } catch (Exception e) { last = e; }
             }
             if (last != null) throw last;
