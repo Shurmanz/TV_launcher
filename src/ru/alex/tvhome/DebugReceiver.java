@@ -76,7 +76,7 @@ public class DebugReceiver extends BroadcastReceiver {
                 if (q != null) {
                     int tier = intent.getIntExtra("t", 0);
                     try {
-                        List<String> r = new Wallpapers(app).searchCommons(q, tier);
+                        List<String> r = new Wallpapers(app).searchCommons(q, tier, false);
                         Log.i(Net.TAG, "debug commons t" + tier + " [" + q + "]: " + r.size()
                                 + (r.isEmpty() ? "" : " first=" + r.get(0)));
                     } catch (Exception e) {

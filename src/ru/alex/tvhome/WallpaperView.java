@@ -244,6 +244,7 @@ final class WallpaperView extends FrameLayout {
                     if (u.equals(current) && urls.size() > 1) u = urls.get(urlIndex++ % urls.size());
                     try { bm = decode(walls.fetch(u)); used = u; } catch (Exception e) { Net.log("image " + u, e); }
                 }
+                if (used != null) walls.markShown(used); // не повторять, пока не покажем другие
                 if (bm == null && current == null) {
                     File f = walls.anyCached();
                     if (f != null) bm = decode(f);

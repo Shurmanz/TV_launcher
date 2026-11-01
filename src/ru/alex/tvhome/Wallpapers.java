@@ -46,9 +46,9 @@ final class Wallpapers {
         }
     }
 
-    /** Ключ сцены, например "day_cloudy_autumn". */
+    /** Ключ сцены, например "v3_day_cloudy_autumn" (v3 — расширенный подбор, старые списки не используются). */
     static String sceneKey(Weather.Phase p, Weather.Sky s) {
-        return "v2_" + p.name().toLowerCase() + "_" + s.name().toLowerCase() + "_" + season();
+        return "v3_" + p.name().toLowerCase() + "_" + s.name().toLowerCase() + "_" + season();
     }
 
     static String season() {
@@ -66,26 +66,29 @@ final class Wallpapers {
         switch (s) {
             case CLEAR:
                 switch (p) {
-                    case DAWN: return new String[]{"sunrise", "morning mist", "sunrise lake"};
-                    case DAY: return new String[]{"forest", "lake", "river", "landscape"};
-                    case DUSK: return new String[]{"sunset", "sunset lake", "evening"};
-                    default: return new String[]{"night", "moon", "starry sky"};
+                    case DAWN: return new String[]{"sunrise", "morning mist", "sunrise lake", "dawn", "morning forest", "sunrise mountains"};
+                    case DAY: return new String[]{"forest", "lake", "river", "landscape", "mountains", "meadow", "field", "valley", "waterfall", "hills"};
+                    case DUSK: return new String[]{"sunset", "sunset lake", "evening", "sunset mountains", "sunset river", "golden hour"};
+                    default: return new String[]{"night", "moon", "starry sky", "milky way", "night landscape"};
                 }
             case CLOUDY:
                 switch (p) {
-                    case DAWN: return new String[]{"morning clouds", "overcast", "morning mist"};
-                    case DAY: return new String[]{"overcast", "cloudy", "clouds", "grey sky", "mist"};
-                    case DUSK: return new String[]{"dusk", "evening clouds", "cloudy sunset", "sunset clouds", "evening"};
-                    default: return new String[]{"night clouds", "night"};
+                    case DAWN: return new String[]{"morning clouds", "overcast", "morning mist", "dawn clouds"};
+                    case DAY: return new String[]{"overcast", "cloudy", "clouds", "grey sky", "mist", "cloudy forest", "cloudy lake", "cloudy mountains"};
+                    case DUSK: return new String[]{"dusk", "evening clouds", "cloudy sunset", "sunset clouds", "evening", "twilight"};
+                    default: return new String[]{"night clouds", "night", "night landscape"};
                 }
             case FOG:
-                return p == Weather.Phase.NIGHT ? new String[]{"fog night", "mist night"} : new String[]{"fog", "mist", "foggy forest"};
+                return p == Weather.Phase.NIGHT ? new String[]{"fog night", "mist night", "night fog"}
+                        : new String[]{"fog", "mist", "foggy forest", "fog lake", "fog river", "foggy morning"};
             case RAIN:
-                return p == Weather.Phase.NIGHT ? new String[]{"rain night", "night"} : new String[]{"rain", "rainy", "rain clouds"};
+                return p == Weather.Phase.NIGHT ? new String[]{"rain night", "night"}
+                        : new String[]{"rain", "rainy", "rain clouds", "rainy forest", "rain lake"};
             case SNOW:
-                return p == Weather.Phase.NIGHT ? new String[]{"snow night", "winter night"} : new String[]{"snowfall", "snow forest", "snowy"};
+                return p == Weather.Phase.NIGHT ? new String[]{"snow night", "winter night", "winter moon"}
+                        : new String[]{"snowfall", "snow forest", "snowy", "winter landscape", "snow mountains", "frozen lake"};
             default:
-                return new String[]{"thunderstorm", "storm clouds"};
+                return new String[]{"thunderstorm", "storm clouds", "lightning"};
         }
     }
 
@@ -147,36 +150,55 @@ final class Wallpapers {
         return prefs.getStringSet("hidden", Collections.emptySet()).contains(id(entry));
     }
 
-    /** Список URL для сцены: из кеша prefs (6 ч) или свежий запрос к Commons. Вызывать в фоне. */
+    /** Сколько фото держать в списке сцены и сколько последних показанных не повторять. */
+    private static final int LIST_MAX = 400;
+    private static final int RECENT_MAX = 80;
+
+    /**
+     * Список URL для сцены: из кеша prefs (6 ч) или свежий подбор в Commons. Вызывать в фоне.
+     * Порядок каждый раз новый: сначала то, что давно (или ни разу) не показывали.
+     */
     List<String> urlsFor(Weather.Phase p, Weather.Sky s) {
         String key = sceneKey(p, s);
         long ts = prefs.getLong(key + ".ts", 0);
         String saved = prefs.getString(key, null);
         if (saved != null && System.currentTimeMillis() - ts < LIST_TTL) {
-            return visible(Arrays.asList(saved.split("\n")));
+            return order(visible(Arrays.asList(saved.split("\n"))));
         }
+        List<String> qs = queries(p, s);
         LinkedHashSet<String> set = new LinkedHashSet<>();
         boolean limited = false;
-        for (String query : queries(p, s)) {
-            try { set.addAll(searchCommons(query, 0)); }
-            catch (Exception e) { Net.log("commons '" + query + "' t0", e); if (String.valueOf(e.getMessage()).contains("429")) { limited = true; break; } }
+        // 1) «Quality images»: первая страница выдачи и ещё одна дальше, если она есть
+        for (String query : qs) {
+            try { set.addAll(searchCommons(query, 0, true)); }
+            catch (Exception e) { Net.log("commons '" + query + "' t0", e); if (is429(e)) { limited = true; break; } }
         }
-        if (set.size() < 15 && !limited) { // мало «Quality images» — добираем из «Valued images» (тоже отобранные)
-            for (String query : queries(p, s)) {
-                try { set.addAll(searchCommons(query, 1)); }
-                catch (Exception e) { Net.log("commons '" + query + "' t1", e); if (String.valueOf(e.getMessage()).contains("429")) break; }
+        // 2) «Featured pictures» — лучшие снимки Commons, по первым запросам сцены
+        for (int i = 0; i < Math.min(4, qs.size()) && !limited; i++) {
+            try { set.addAll(searchCommons(qs.get(i), 2, false)); }
+            catch (Exception e) { Net.log("commons '" + qs.get(i) + "' t2", e); if (is429(e)) limited = true; }
+        }
+        // 3) мало — добираем «Valued images» (тоже отобранные)
+        if (set.size() < 60 && !limited) {
+            for (String query : qs) {
+                try { set.addAll(searchCommons(query, 1, false)); }
+                catch (Exception e) { Net.log("commons '" + query + "' t1", e); if (is429(e)) break; }
             }
         }
         List<String> out = new ArrayList<>(set);
-        if (out.isEmpty() && saved != null) return visible(Arrays.asList(saved.split("\n")));
+        android.util.Log.i(Net.TAG, "scene " + key + ": collected " + out.size() + " photos" + (limited ? " (429)" : ""));
+        if (out.isEmpty() && saved != null) return order(visible(Arrays.asList(saved.split("\n"))));
         Collections.shuffle(out, rnd);
+        if (out.size() > LIST_MAX) out = new ArrayList<>(out.subList(0, LIST_MAX));
         if (!out.isEmpty()) {
             // маленький список (например, после отказа 429) — повторить через 30 мин, а не через 6 ч
-            long ts2 = out.size() >= 15 ? System.currentTimeMillis() : System.currentTimeMillis() - LIST_TTL + 30 * 60_000L;
+            long ts2 = out.size() >= 40 ? System.currentTimeMillis() : System.currentTimeMillis() - LIST_TTL + 30 * 60_000L;
             prefs.edit().putString(key, join(out)).putLong(key + ".ts", ts2).apply();
         }
-        return visible(out);
+        return order(visible(out));
     }
+
+    private static boolean is429(Exception e) { return String.valueOf(e.getMessage()).contains("429"); }
 
     private List<String> visible(List<String> l) {
         List<String> r = new ArrayList<>();
@@ -184,18 +206,53 @@ final class Wallpapers {
         return r;
     }
 
+    // ---------- недавно показанные ----------
+
+    /** Запомнить, что фото показано: такие уходят в конец очереди, пока не наберётся RECENT_MAX других. */
+    void markShown(String entry) {
+        if (entry == null) return;
+        String id = id(entry);
+        List<String> r = new ArrayList<>(Arrays.asList(prefs.getString("recent", "").split(",")));
+        r.remove(id);
+        r.remove("");
+        r.add(id);
+        while (r.size() > RECENT_MAX) r.remove(0);
+        prefs.edit().putString("recent", android.text.TextUtils.join(",", r)).apply();
+    }
+
+    /** Перемешать заново и поставить недавно показанные в конец (самые свежие — в самый конец). */
+    private List<String> order(List<String> l) {
+        List<String> r = new ArrayList<>(l);
+        Collections.shuffle(r, rnd);
+        List<String> recent = Arrays.asList(prefs.getString("recent", "").split(","));
+        java.util.Map<String, Integer> pos = new java.util.HashMap<>();
+        for (int i = 0; i < recent.size(); i++) if (!recent.get(i).isEmpty()) pos.put(recent.get(i), i);
+        Collections.sort(r, (a, b) -> Integer.compare(
+                pos.getOrDefault(id(a), -1), pos.getOrDefault(id(b), -1))); // сортировка устойчива: свежие не трогает
+        return r;
+    }
+
     /**
-     * Поиск в Commons. Уровень 0 — только «Quality images», уровень 1 — любые растровые фото.
-     * Сортировка по релевантности (random подмешивал случайные несвязанные файлы),
-     * разнообразие — за счёт случайного сдвига по выдаче.
+     * Поиск в Commons. Уровень 0 — «Quality images», 1 — «Valued images», 2 — «Featured pictures».
+     * Сортировка по релевантности (random подмешивал случайные несвязанные файлы);
+     * more=true — взять ещё одну страницу выдачи (следующие 50), если она есть.
      */
-    List<String> searchCommons(String query, int tier) throws Exception {
+    List<String> searchCommons(String query, int tier, boolean more) throws Exception {
         // шаблоны можно переопределить через DebugReceiver (--es tpl0 "... %s ...") без пересборки
-        String tpl = prefs.getString("tpl" + tier, tier == 0 ? "%s incategory:\"Quality images\"" : "%s incategory:\"Valued images\"");
+        String def = tier == 0 ? "%s incategory:\"Quality images\""
+                : tier == 1 ? "%s incategory:\"Valued images\""
+                : "%s incategory:\"Featured pictures on Wikimedia Commons\"";
+        String tpl = prefs.getString("tpl" + tier, def);
         String search = tpl.replace("%s", query + " " + PEOPLE + " " + offSeason());
         throttle();
         JSONObject o = commonsQuery(search, 0);
-        return parseCommons(o, query, search, tier);
+        List<String> res = parseCommons(o, query, search, tier);
+        JSONObject cont = o.optJSONObject("continue");
+        if (more && cont != null && cont.has("gsroffset")) {
+            throttle();
+            res.addAll(parseCommons(commonsQuery(search, cont.optInt("gsroffset", 50)), query, search, tier));
+        }
+        return res;
     }
 
     private static long lastQuery;
