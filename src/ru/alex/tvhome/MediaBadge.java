@@ -83,9 +83,10 @@ final class MediaBadge {
             boolean fresh = stoppedAt == 0 || now - stoppedAt > QUIET_RESHOW_MS;
             if (fresh && enabled(ctx) && permitted(ctx) && Adb.known(ctx)) {
                 final int s = ++session;
-                // видеотракт пишет строку раз в ~5 с: пробуем через 3 и через 7 с
+                // видеотракт пишет строку раз в ~5 с (и не сразу после старта): пробуем через 3, 7,5 и 13 с
                 bg.postDelayed(() -> probe(s, false), 3000);
-                bg.postDelayed(() -> probe(s, true), 7500);
+                bg.postDelayed(() -> probe(s, false), 7500);
+                bg.postDelayed(() -> probe(s, true), 13000);
             }
         } else if (!media && playing) {
             playing = false;
@@ -170,7 +171,7 @@ final class MediaBadge {
         // видит только свои строки и вдобавок спрашивает разрешение диалогом поверх фильма — так не делаем
         String disp = "";
         if (ctx != null && Adb.known(ctx)) {
-            try { disp = Adb.sh(ctx, "logcat -d -t 300 -s DispLink:I"); } catch (Exception e) { i.raw += "adb[" + e.getMessage() + "] "; }
+            try { disp = Adb.sh(ctx, "logcat -d -t 3000 -s DispLink:I"); } catch (Exception e) { i.raw += "adb[" + e.getMessage() + "] "; }
         } else i.raw += "adb[нет] ";
         String lastLine = null;
         for (String l : disp.split("\n")) if (l.contains("flipToPq")) lastLine = l;
