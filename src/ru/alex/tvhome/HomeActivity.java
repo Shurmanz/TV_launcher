@@ -1244,7 +1244,7 @@ public class HomeActivity extends Activity {
         boolean badgeOn = MediaBadge.enabled(this);
         addAction(bd, (badgeOn ? "✓ " : "") + "Показывать", () -> setBadge(p, true));
         addAction(bd, (badgeOn ? "" : "✓ ") + "Не показывать", () -> setBadge(p, false));
-        section(p, "Формат видео при старте", !MediaBadge.permitted(this) && badgeOn
+        section(p, "Формат видео при старте", (!MediaBadge.permitted(this) || !adb) && badgeOn
                 ? "Нужна «Оптимизация» → «Подключить»: Slauncher выдаст себе доступ к журналу видеотракта."
                 : "На 5 секунд в углу: 4K · HDR10 · 24 к/с · HEVC · Dolby Atmos.", bd);
 

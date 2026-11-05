@@ -64,8 +64,8 @@ public class DebugReceiver extends BroadcastReceiver {
                     }
                 }
                 if (intent.getBooleanExtra("badge", false)) { // плашка формата: прочитать сейчас и показать
-                    MediaBadge.Info bi = MediaBadge.read();
-                    Log.i(Net.TAG, "debug badge: perms=" + MediaBadge.permitted(app) + " text=" + bi.text() + " | " + bi.raw);
+                    MediaBadge.Info bi = MediaBadge.read(app);
+                    Log.i(Net.TAG, "debug badge: perms=" + MediaBadge.permitted(app) + " adb=" + Adb.known(app) + " text=" + bi.text() + " | " + bi.raw);
                     if (!bi.text().isEmpty()) Overlay.badge(app, bi.text(), bi.hdr);
                 }
                 if (intent.getBooleanExtra("update", false)) {

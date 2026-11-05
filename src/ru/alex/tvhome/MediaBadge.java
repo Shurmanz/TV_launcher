@@ -28,11 +28,11 @@ import java.util.regex.Pattern;
  *  • видео — журнал видеотракта MediaTek: раз в ~5 с строка DispLink «flip to PQ … Hdr 1, FrameRate 23976 … FWxH 3840x2160»;
  *  • кодек — dumpsys media.resource_manager (Name: c2.mtk.hevc.decoder);
  *  • звук — dumpsys media.audio_flinger (формат выхода и DecoderFormat у аудиотракта MediaTek).
- * Нужны READ_LOGS и DUMP (pm grant через adb — выдаёт «Оптимизация» или HA). Без них — тихо ничего не показываем.
+ * Нужны DUMP (pm grant через adb — выдаёт «Оптимизация» или HA) и встроенный ADB для журнала. Без них — тихо ничего не показываем.
  * Старт воспроизведения ловим через AudioPlaybackCallback: он есть у любого приложения и ничего не стоит в простое.
  */
 final class MediaBadge {
-    static final String[] PERMS = {"android.permission.READ_LOGS", "android.permission.DUMP"};
+    static final String[] PERMS = {"android.permission.DUMP"};
     private static final long QUIET_RESHOW_MS = 90_000L; // пауза короче — после неё не показываем повторно
 
     private static MediaBadge inst;
@@ -81,7 +81,7 @@ final class MediaBadge {
         if (media && !playing) {
             playing = true;
             boolean fresh = stoppedAt == 0 || now - stoppedAt > QUIET_RESHOW_MS;
-            if (fresh && enabled(ctx) && permitted(ctx)) {
+            if (fresh && enabled(ctx) && permitted(ctx) && Adb.known(ctx)) {
                 final int s = ++session;
                 // видеотракт пишет строку раз в ~5 с: пробуем через 3 и через 7 с
                 bg.postDelayed(() -> probe(s, false), 3000);
@@ -98,7 +98,7 @@ final class MediaBadge {
     private void probe(int s, boolean last) {
         if (s != session || shownFor == s || !playing) return;
         try {
-            Info i = read();
+            Info i = read(ctx);
             String text = i.text();
             Log.i(Net.TAG, "badge: " + (text.isEmpty() ? "(нет видео)" : text) + " | " + i.raw);
             if (i.hasVideo || (last && !text.isEmpty())) {
@@ -163,10 +163,15 @@ final class MediaBadge {
     private static final Pattern DISP = Pattern.compile(
             "^(\\d\\d-\\d\\d \\d\\d:\\d\\d:\\d\\d)\\.\\d+.*flipToPq.*?Hdr (\\d+).*?FrameRate (\\d+).*?FWxH (\\d+)x(\\d+)");
 
-    static Info read() {
+    static Info read(Context ctx) {
         Info i = new Info();
         // видео: последняя строка видеотракта, не старше 15 с
-        String disp = exec("logcat", "-d", "-t", "300", "-s", "DispLink:I");
+        // журнал читаем через встроенный ADB (оболочка видит всё); logcat из самого приложения на Android 13+
+        // видит только свои строки и вдобавок спрашивает разрешение диалогом поверх фильма — так не делаем
+        String disp = "";
+        if (ctx != null && Adb.known(ctx)) {
+            try { disp = Adb.sh(ctx, "logcat -d -t 300 -s DispLink:I"); } catch (Exception e) { i.raw += "adb[" + e.getMessage() + "] "; }
+        } else i.raw += "adb[нет] ";
         String lastLine = null;
         for (String l : disp.split("\n")) if (l.contains("flipToPq")) lastLine = l;
         if (lastLine != null) {

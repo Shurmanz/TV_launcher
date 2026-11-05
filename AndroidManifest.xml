@@ -17,8 +17,7 @@
     <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
     <!-- всплывающие события HA поверх фильма; выдаётся через adb: appops set ru.alex.tvhome SYSTEM_ALERT_WINDOW allow -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-    <!-- плашка «4K · HDR10 · Dolby»: журнал видеотракта и dumpsys; выдаются через adb (pm grant) -->
-    <uses-permission android:name="android.permission.READ_LOGS" />
+    <!-- плашка «4K · HDR10 · Dolby»: dumpsys кодека и звука; выдаётся через adb (pm grant) -->
     <uses-permission android:name="android.permission.DUMP" />
     <!-- кнопка «Обновить» в настройках Slauncher -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
