@@ -58,6 +58,13 @@ public class NatureDream extends DreamService {
         root.addView(box, cl);
         wall.addListener(clock);
 
+        PhotoCaption caption = new PhotoCaption(this); // справа внизу: где снято
+        FrameLayout.LayoutParams pl = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM | Gravity.END);
+        pl.setMargins(0, 0, Math.round(64 * d), Math.round(56 * d));
+        root.addView(caption, pl);
+        wall.setCaptionListener(caption::show);
+
         setContentView(root);
     }
 

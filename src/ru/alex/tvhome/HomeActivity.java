@@ -53,6 +53,7 @@ public class HomeActivity extends Activity {
     private ClockView clock;
     private TextView weatherBtn, netLabel, moveHint, tip;
     private LinearLayout updBar;
+    private FrameLayout captionBox;
     private TextView sleepInfo;
     private final Runnable sleepTick = new Runnable() {
         @Override public void run() {
@@ -355,6 +356,14 @@ public class HomeActivity extends Activity {
         content.addView(updBar, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL) {{ bottomMargin = dp(24); }});
 
+        // справа внизу: где снято фото на фоне
+        captionBox = new FrameLayout(this);
+        PhotoCaption caption = new PhotoCaption(this);
+        captionBox.addView(caption);
+        content.addView(captionBox, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM | Gravity.END) {{ bottomMargin = dp(30); rightMargin = dp(64); }});
+        wall.setCaptionListener(caption::show);
+
         setContentView(root);
     }
 
@@ -585,6 +594,13 @@ public class HomeActivity extends Activity {
                 bar.getLocationInWindow(t);
                 boolean hide = bottom > t[1] - b[1] && !bar.hasFocus();
                 bar.animate().alpha(hide ? 0f : 1f).setDuration(220).start();
+            }
+            if (captionBox != null) { // подпись к фото — только если плитка заходит на её угол
+                int[] t = new int[2];
+                captionBox.getLocationInWindow(t);
+                float right = cx + card.getWidth() * FOCUS / 2f;
+                boolean hide = bottom > t[1] - b[1] && right > t[0] - b[0] - dp(24);
+                captionBox.animate().alpha(hide ? 0f : 1f).setDuration(220).start();
             }
         });
         // параллакс: фон чуть смещается вслед за фокусом (с живым фоном — нет: лишняя перерисовка всего экрана)

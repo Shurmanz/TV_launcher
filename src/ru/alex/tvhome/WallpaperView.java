@@ -23,6 +23,8 @@ import java.util.concurrent.Executors;
 /** Фон из фото природы под время суток, сезон и погоду: плавная смена и медленный наезд камеры. */
 final class WallpaperView extends FrameLayout {
     interface Listener { void onWeather(Weather w); }
+    /** Подпись «где снято» для текущего фото; null — без подписи (кеш, «Живая погода»). */
+    interface CaptionListener { void onCaption(String text); }
 
     private static final long WEATHER_TTL = 20 * 60_000L;
     private static final long FADE_MS = 1800L;
@@ -43,6 +45,7 @@ final class WallpaperView extends FrameLayout {
     private String current, pending;
     private long lastChange; // SystemClock.elapsedRealtime() последней смены
     private SkyView skyView; // режим «Живая погода» вместо фото
+    private CaptionListener captionListener;
 
     WallpaperView(Context ctx, long intervalMs) {
         super(ctx);
@@ -76,6 +79,10 @@ final class WallpaperView extends FrameLayout {
 
     boolean isSky() { return skyView != null; }
 
+    void setCaptionListener(CaptionListener l) { captionListener = l; }
+
+    private void caption(String text) { if (captionListener != null) captionListener.onCaption(text); }
+
     /** Переключить фон: true — «Живая погода», false — фото природы. */
     void setSky(boolean on) {
         if (on == isSky()) return;
@@ -89,6 +96,7 @@ final class WallpaperView extends FrameLayout {
             front.setImageDrawable(null); // фото в памяти больше не нужны
             back.setImageDrawable(null);
             current = null;
+            caption(null);
         } else {
             skyView.setRunning(false);
             removeView(skyView);
@@ -204,7 +212,7 @@ final class WallpaperView extends FrameLayout {
         run(() -> {
             File f = walls.anyCached();
             Bitmap bm = f == null ? null : decode(f);
-            if (bm != null) ui.post(() -> { if (front.getDrawable() == null && skyView == null) crossfade(bm, null); });
+            if (bm != null) ui.post(() -> { if (front.getDrawable() == null && skyView == null) { crossfade(bm, null); caption(null); } });
         });
     }
 
@@ -213,7 +221,7 @@ final class WallpaperView extends FrameLayout {
         busy = true;
         run(() -> {
             Bitmap bm = null;
-            String used = null;
+            String used = null, cap = null;
             try {
                 Loc.refreshAuto(getContext(), false); // авто-город: раз в сутки по IP; переехали — погода заново
                 Weather w = lastWeather;
@@ -244,6 +252,10 @@ final class WallpaperView extends FrameLayout {
                     if (u.equals(current) && urls.size() > 1) u = urls.get(urlIndex++ % urls.size());
                     try { bm = decode(walls.fetch(u)); used = u; } catch (Exception e) { Net.log("image " + u, e); }
                 }
+                if (used != null) {
+                    walls.markShown(used); // не повторять, пока не покажем другие
+                    cap = walls.caption(used);
+                }
                 if (bm == null && current == null) {
                     File f = walls.anyCached();
                     if (f != null) bm = decode(f);
@@ -253,10 +265,10 @@ final class WallpaperView extends FrameLayout {
                 }
             } finally {
                 final Bitmap res = bm;
-                final String fu = used;
+                final String fu = used, fc = cap;
                 ui.post(() -> {
                     busy = false;
-                    if (res != null && running && skyView == null) crossfade(res, fu);
+                    if (res != null && running && skyView == null) { crossfade(res, fu); caption(fc); }
                 });
             }
         });
