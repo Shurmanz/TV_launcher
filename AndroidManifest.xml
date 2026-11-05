@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="ru.alex.tvhome"
-    android:versionCode="34"
-    android:versionName="1.11.3">
+    android:versionCode="35"
+    android:versionName="1.12.0">
 
     <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="29" />
 
@@ -17,6 +17,9 @@
     <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
     <!-- всплывающие события HA поверх фильма; выдаётся через adb: appops set ru.alex.tvhome SYSTEM_ALERT_WINDOW allow -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- плашка «4K · HDR10 · Dolby»: журнал видеотракта и dumpsys; выдаются через adb (pm grant) -->
+    <uses-permission android:name="android.permission.READ_LOGS" />
+    <uses-permission android:name="android.permission.DUMP" />
     <!-- кнопка «Обновить» в настройках Slauncher -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- «Освободить память» без встроенного ADB -->

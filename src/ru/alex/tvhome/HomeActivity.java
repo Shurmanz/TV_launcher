@@ -1240,6 +1240,14 @@ public class HomeActivity extends Activity {
         section(p, "Фон главного экрана", skyOn ? "Живая погода: дождь, снег, туман — под погоду и время суток."
                 : "Фото природы под время суток, сезон и погоду.", bgr);
 
+        LinearLayout bd = new LinearLayout(this);
+        boolean badgeOn = MediaBadge.enabled(this);
+        addAction(bd, (badgeOn ? "✓ " : "") + "Показывать", () -> setBadge(p, true));
+        addAction(bd, (badgeOn ? "" : "✓ ") + "Не показывать", () -> setBadge(p, false));
+        section(p, "Формат видео при старте", !MediaBadge.permitted(this) && badgeOn
+                ? "Нужна «Оптимизация» → «Подключить»: Slauncher выдаст себе доступ к журналу видеотракта."
+                : "На 5 секунд в углу: 4K · HDR10 · 24 к/с · HEVC · Dolby Atmos.", bd);
+
         LinearLayout tr = new LinearLayout(this);
         addAction(tr, "Сохранить", () -> bg(p, "сохраняю…", () -> Transfer.save(this), n -> {
             Toast.makeText(this, "Сохранено: " + n + (Adb.known(this) ? " (Slauncher/settings)" : ""), Toast.LENGTH_LONG).show();
@@ -1258,6 +1266,18 @@ public class HomeActivity extends Activity {
         section(p, "Вернуть как было", "Убрать Slauncher и все его изменения с телевизора.", back);
         if (!adb) p.count.setText("часть функций — после «Оптимизация → Подключить»");
         showPanel(p, first);
+    }
+
+    private void setBadge(Panel p, boolean on) {
+        MediaBadge.setEnabled(this, on);
+        if (on && !MediaBadge.permitted(this) && Adb.known(this)) {
+            bg(p, "выдаю доступ…", () -> {
+                for (String perm : MediaBadge.PERMS) Adb.sh(this, "pm grant " + getPackageName() + " " + perm);
+                return MediaBadge.permitted(this);
+            }, ok -> openComfort());
+            return;
+        }
+        openComfort();
     }
 
     private void setHomeBackground(boolean sky) {

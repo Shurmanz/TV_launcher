@@ -117,6 +117,37 @@ final class Overlay {
         ui.postDelayed(hideTask, kd.seconds * 1000L);
     }
 
+    /** Плашка формата при старте видео: «4K · HDR10 · 23,976 к/с · HEVC · Dolby Atmos» в правом верхнем углу на 5 с. */
+    static void badge(Context ctx, String text, int hdr) {
+        ui.post(() -> {
+            if (!Settings.canDrawOverlays(ctx)) return;
+            if (current != null) return; // карточка события важнее — не перекрываем
+            Fonts.init(ctx);
+            WindowManager wm = (WindowManager) ctx.getSystemService(Context.WINDOW_SERVICE);
+            TextView t = Ui.text(ctx, 16, 600, 0xFFFFFFFF);
+            t.setShadowLayer(0, 0, 0, 0);
+            t.setText(text);
+            int accent = hdr == 4 ? 0xFFB98CFF : hdr > 0 ? 0xFFFFC94D : 0x66FFFFFF; // Dolby Vision — сиреневый, HDR — золотой
+            t.setPadding(Ui.dp(ctx, 18), Ui.dp(ctx, 9), Ui.dp(ctx, 18), Ui.dp(ctx, 9));
+            t.setBackground(Ui.round(0xD9141416, Ui.dp(ctx, 100), Ui.dp(ctx, 1.5f), accent));
+            WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
+                    WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
+                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                            | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                    PixelFormat.TRANSLUCENT);
+            lp.gravity = Gravity.TOP | Gravity.END;
+            lp.x = Ui.dp(ctx, 40);
+            lp.y = Ui.dp(ctx, 32);
+            try { wm.addView(t, lp); } catch (Exception e) { Net.log("badge add", e); return; }
+            t.setAlpha(0f);
+            t.animate().alpha(1f).setDuration(300).start();
+            ui.postDelayed(() -> t.animate().alpha(0f).setDuration(400).withEndAction(() -> {
+                try { wm.removeView(t); } catch (Exception ignored) { }
+            }).start(), 5000);
+        });
+    }
+
     private static void hideNow(WindowManager wm) {
         if (hideTask != null) ui.removeCallbacks(hideTask);
         hideTask = null;
