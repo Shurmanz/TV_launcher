@@ -2047,13 +2047,26 @@ public class HomeActivity extends Activity {
     /** С главного экрана: всегда со вкладки «Сериалы». */
     private void openWatchFresh() {
         watchMode = "series";
+        watchRegion = "foreign";
         watchFocus = 0;
         watchTab = null;
         openWatch();
     }
 
+    private String watchRegion = "foreign"; // foreign | ru
+
     private TextView watchTab(LinearLayout row, String text, String mode) {
-        boolean sel = mode.equals(watchMode);
+        return pill(row, text, mode.equals(watchMode), mode, () -> { watchMode = mode; });
+    }
+
+    private TextView regionTab(LinearLayout row, String text, String region) {
+        return pill(row, text, region.equals(watchRegion), region, () -> {
+            watchRegion = region;
+            if ("search".equals(watchMode)) watchMode = "series";
+        });
+    }
+
+    private TextView pill(LinearLayout row, String text, boolean sel, String key, Runnable pick) {
         TextView t = Ui.text(this, 15, sel ? 600 : 500, 0xFFFFFFFF);
         t.setShadowLayer(0, 0, 0, 0);
         t.setText(text);
@@ -2068,10 +2081,10 @@ public class HomeActivity extends Activity {
         paint.run();
         t.setOnFocusChangeListener((v, has) -> paint.run());
         t.setOnClickListener(v -> {
-            if (mode.equals(watchMode)) return;
-            watchMode = mode;
+            if (sel) return;
+            pick.run();
             watchFocus = 0;
-            watchTab = mode;
+            watchTab = key;
             openWatch();
         });
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -2108,7 +2121,11 @@ public class HomeActivity extends Activity {
         top.setGravity(Gravity.CENTER_VERTICAL);
         TextView tSeries = watchTab(top, "Сериалы", "series");
         TextView tFilms = watchTab(top, "Фильмы", "films");
-        android.widget.EditText q = field("🔍  Найти сериал или фильм", 330);
+        View sep = new View(this);
+        top.addView(sep, new LinearLayout.LayoutParams(dp(18), 1));
+        TextView tForeign = regionTab(top, "Иностранные", "foreign");
+        TextView tRu = regionTab(top, "Русские", "ru");
+        android.widget.EditText q = field("🔍  Найти", 230);
         q.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
         if ("search".equals(watchMode)) q.setText(searchQ);
         q.setOnEditorActionListener((v, id, ev) -> {
@@ -2135,22 +2152,31 @@ public class HomeActivity extends Activity {
         tl.bottomMargin = dp(6);
         p.body.addView(top, tl);
 
-        View tabFocus = "films".equals(watchTab) ? tFilms : "series".equals(watchTab) ? tSeries : null;
+        View tabFocus = "films".equals(watchTab) ? tFilms : "series".equals(watchTab) ? tSeries
+                : "foreign".equals(watchTab) ? tForeign : "ru".equals(watchTab) ? tRu : null;
+        boolean ru = "ru".equals(watchRegion);
         View[] fr = new View[2]; // первая карточка, карточка для возврата фокуса
         List<Shows.Show> list = new ArrayList<>();
         java.util.Set<Integer> followedIds = new java.util.HashSet<>();
 
         if ("series".equals(watchMode)) {
-            List<Shows.Show> fol = Shows.followed(this);
-            List<Shows.Show> picks = Shows.picks(this);
-            for (Shows.Show s : fol) { followedIds.add(s.id); list.add(s); }
+            List<Shows.Show> allPicks = Shows.picks(this), picks = new ArrayList<>();
+            Map<Integer, Shows.Show> byId = new HashMap<>();
+            for (Shows.Show s : allPicks) { byId.put(s.id, s); if (s.russian() == ru) picks.add(s); }
+            int folN = 0;
+            for (Shows.Show f : Shows.followed(this)) {
+                followedIds.add(f.id);
+                Shows.Show s = byId.containsKey(f.id) ? byId.get(f.id) : f; // свежая копия из подборки — с хорошим постером
+                if (s.russian() == ru) { list.add(s); folN++; }
+            }
             for (Shows.Show s : picks) if (!followedIds.contains(s.id)) list.add(s);
             List<String> rel = Shows.released(this);
-            note(p, !rel.isEmpty() ? "🎬  " + TextUtils.join("   ·   ", rel) : "Новинки фантастики и триллеров  ·  ★ — вы следите за сериями",
+            note(p, !rel.isEmpty() ? "🎬  " + TextUtils.join("   ·   ", rel)
+                    : (ru ? "Русские" : "Иностранные") + " сериалы за этот и прошлый год с оценкой от 7,5  ·  ★ — вы следите за сериями",
                     !rel.isEmpty());
-            p.count.setText(fol.isEmpty() ? plural(picks.size(), "новинка", "новинки", "новинок")
-                    : "слежу: " + fol.size() + "  ·  " + plural(picks.size(), "новинка", "новинки", "новинок"));
-            if (list.isEmpty()) {
+            p.count.setText(folN == 0 ? plural(picks.size(), "сериал", "сериала", "сериалов")
+                    : "слежу: " + folN + "  ·  " + plural(picks.size(), "сериал", "сериала", "сериалов"));
+            if (allPicks.isEmpty()) {
                 note(p, "Собираю подборку…", false);
                 Shows.refresh(this, () -> { if (panel == p && !Shows.picks(this).isEmpty()) openWatch(); });
             }
@@ -2160,12 +2186,13 @@ public class HomeActivity extends Activity {
                 showPanel(p, tabFocus != null ? tabFocus : tFilms);
                 return;
             }
-            list.addAll(Shows.films(this));
+            List<Shows.Show> films = Shows.films(this);
+            for (Shows.Show s : films) if (s.russian() == ru) list.add(s);
             p.count.setText(list.isEmpty() ? "" : plural(list.size(), "фильм", "фильма", "фильмов"));
             String err = Shows.filmsError(this);
-            if (list.isEmpty() && !err.isEmpty()) note(p, "Не получилось загрузить фильмы: " + err, true);
-            else note(p, "Фантастика и триллеры, вышедшие в цифре за последние 3 месяца — свежие первыми", false);
-            if (list.isEmpty()) {
+            if (films.isEmpty() && !err.isEmpty()) note(p, "Не получилось загрузить фильмы: " + err, true);
+            else note(p, (ru ? "Русские" : "Иностранные") + " фильмы, вышедшие в цифре за 3 месяца, с оценкой от 7  ·  свежие первыми", false);
+            if (films.isEmpty()) {
                 if (err.isEmpty()) note(p, "Загружаю фильмы…", false);
                 Shows.refreshFilms(this, () -> { if (panel == p && (!Shows.films(this).isEmpty() || !Shows.filmsError(this).isEmpty())) openWatch(); });
                 View t = Panel.action(this, "Сменить токен", () -> { Shows.setToken(this, "", e -> { }); openWatch(); });
@@ -2279,15 +2306,16 @@ public class HomeActivity extends Activity {
             st.setBackground(Ui.round(0xFFFFC94D, dp(100), 0, 0));
             pic.addView(st, new FrameLayout.LayoutParams(dp(24), dp(24), Gravity.TOP | Gravity.END) {{ setMargins(0, dp(6), dp(6), 0); }});
         }
-        card.addView(pic, new LinearLayout.LayoutParams(dp(100), dp(148)));
-        Shows.poster(iv, s.image, dp(100));
+        card.addView(pic, new LinearLayout.LayoutParams(dp(160), dp(238)));
+        Shows.poster(iv, s.image, dp(160));
 
         TextView name = Ui.text(this, 14, 500, 0xFFFFFFFF);
         name.setShadowLayer(0, 0, 0, 0);
         name.setText(s.title);
-        name.setMaxLines(2);
+        name.setTextSize(15);
+        name.setMaxLines(1);
         name.setEllipsize(TextUtils.TruncateAt.END);
-        LinearLayout.LayoutParams nl = new LinearLayout.LayoutParams(dp(100), ViewGroup.LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams nl = new LinearLayout.LayoutParams(dp(160), ViewGroup.LayoutParams.WRAP_CONTENT);
         nl.topMargin = dp(8);
         card.addView(name, nl);
 
@@ -2303,13 +2331,13 @@ public class HomeActivity extends Activity {
             line = Shows.digitalText(s).replace("в цифре с ", "цифра ");
         } else if (!s.genres.isEmpty()) line += (line.isEmpty() ? "" : " · ") + s.genres.split(",")[0];
         sub.setText(line);
-        LinearLayout.LayoutParams sl = new LinearLayout.LayoutParams(dp(100), ViewGroup.LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams sl = new LinearLayout.LayoutParams(dp(160), ViewGroup.LayoutParams.WRAP_CONTENT);
         sl.topMargin = dp(2);
         card.addView(sub, sl);
 
         card.setOnClickListener(v -> openShow(s));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        if (strip.getChildCount() > 0) lp.leftMargin = dp(12);
+        if (strip.getChildCount() > 0) lp.leftMargin = dp(16);
         strip.addView(card, lp);
         return card;
     }

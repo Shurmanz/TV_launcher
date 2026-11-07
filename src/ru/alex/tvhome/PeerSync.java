@@ -88,7 +88,9 @@ final class PeerSync {
             if (h.toLowerCase(java.util.Locale.ROOT).startsWith("content-length:")) len = Integer.parseInt(h.substring(15).trim());
         }
         OutputStream out = s.getOutputStream();
-        if (line.startsWith("GET /follow")) {
+        if (line.startsWith("GET /token")) {
+            reply(out, 200, new JSONObject().put("kp", Shows.token(c)).toString());
+        } else if (line.startsWith("GET /follow")) {
             reply(out, 200, Shows.followDoc(c).toString());
         } else if (line.startsWith("POST /follow") && len > 0 && len < 512_000) {
             char[] buf = new char[len];
@@ -199,6 +201,8 @@ final class PeerSync {
         for (String ip : ps) {
             try {
                 JSONObject theirs = new JSONObject(get("http://" + ip + ":" + PORT + "/follow"));
+                if (Shows.token(c).isEmpty()) // токен Кинопоиска вводится на одном телевизоре — второй берёт себе
+                    try { Shows.adoptToken(c, new JSONObject(get("http://" + ip + ":" + PORT + "/token")).optString("kp")); } catch (Exception ignored) { }
                 if (theirs.optLong("t") > best && Shows.adopt(c, theirs)) best = theirs.optLong("t");
                 else if (theirs.optLong("t") < mine.optLong("t")) post("http://" + ip + ":" + PORT + "/follow", mine.toString());
             } catch (Exception e) {
