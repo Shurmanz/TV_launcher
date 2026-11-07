@@ -51,7 +51,7 @@ public class HomeActivity extends Activity {
     private View nightDim;
     private GlowView glow;
     private ClockView clock;
-    private TextView weatherBtn, netLabel, moveHint, tip;
+    private TextView weatherBtn, netLabel, moveHint, tip, newEps;
     private LinearLayout updBar;
     private FrameLayout captionBox;
     private TextView sleepInfo;
@@ -112,6 +112,8 @@ public class HomeActivity extends Activity {
         Updater.check(this, false, (avail, name) -> { settingsIcon.setDot(avail); updateTip(); });
         HaClient.ensure(this);
         updateTip(true);
+        updateNewEps();
+        Shows.refresh(this, this::updateNewEps);
         root.removeCallbacks(sleepTick);
         sleepTick.run();
         if (panel == null && Comfort.shouldShowWhatsNew(this)) root.postDelayed(this::openWhatsNew, 800);
@@ -175,6 +177,7 @@ public class HomeActivity extends Activity {
     @Override
     public void onBackPressed() {
         if (moving != null) { endMove(); return; }
+        if (panel != null && panel == detailPanel) { detailPanel = null; openWatch(); return; } // из карточки — назад к подборке
         if (panel != null) closePanel();
         // на домашнем экране «Назад» ничего не делает
     }
@@ -264,6 +267,7 @@ public class HomeActivity extends Activity {
         netLabel = (TextView) ((ViewGroup) net).getChildAt(1);
         chips.addView(net);
         chips.addView(chip(new Icon(Icon.ROCKET, 0xFFFFFFFF), "Ускорить", this::boost, null));
+        chips.addView(chip(new Icon(Icon.FILM, 0xFFFFFFFF), "Что посмотреть", v -> openWatch(), null));
         settingsIcon = new Icon(Icon.GEAR, 0xFFFFFFFF);
         chips.addView(chip(settingsIcon, "Настройки", v -> openGearMenu(),
                 v -> { openSleep(); return true; }));
@@ -275,6 +279,24 @@ public class HomeActivity extends Activity {
         chl.topMargin = dp(12);
         left.addView(chips, chl);
         left.setClipChildren(false);
+
+        // «Вышла 5 серия: …» — в день выхода серии сериала из «Слежу»; ОК — открыть «Что посмотреть»
+        newEps = Ui.text(this, 15, 500, 0xFFFFFFFF);
+        newEps.setShadowLayer(0, 0, 0, 0);
+        newEps.setPadding(dp(16), dp(8), dp(18), dp(8));
+        newEps.setFocusable(true);
+        newEps.setVisibility(View.GONE);
+        newEps.setBackground(Ui.round(0xCC1C1C1E, dp(100), dp(1.5f), 0xFFFFC94D));
+        newEps.setOnFocusChangeListener((v, has) -> {
+            v.setBackground(Ui.round(has ? 0xFFFFC94D : 0xCC1C1C1E, dp(100), has ? 0 : dp(1.5f), 0xFFFFC94D));
+            newEps.setTextColor(has ? 0xFF111111 : 0xFFFFFFFF);
+            Ui.focusScale(v, has, 1.04f);
+            if (has) glow.hide();
+        });
+        newEps.setOnClickListener(v -> openWatch());
+        LinearLayout.LayoutParams nel = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        nel.topMargin = dp(10);
+        left.addView(newEps, nel);
 
         // --- плитки: по 5 в строке, лишние — ниже, с прокруткой
         int sw = getResources().getDisplayMetrics().widthPixels;
@@ -1990,5 +2012,243 @@ public class HomeActivity extends Activity {
             ImageView iv = (ImageView) ((ViewGroup) chip).getChildAt(0);
             iv.setImageDrawable(new Icon(kind, chip.hasFocus() ? 0xFF111111 : 0xFFFFFFFF));
         }
+    }
+
+    // --- «Что посмотреть» и «Новые серии»
+
+    private Panel detailPanel;
+    private int watchFocus; // к какому сериалу вернуть фокус после карточки
+
+    /** Строка «Вышла 5 серия: …» под значками — только в сутки после выхода серии. */
+    private void updateNewEps() {
+        if (newEps == null) return;
+        List<String> r = Shows.released(this);
+        if (r.isEmpty()) {
+            if (newEps.hasFocus()) focusFirstTile();
+            newEps.setVisibility(View.GONE);
+            return;
+        }
+        newEps.setText("🎬  " + r.get(0) + (r.size() > 1 ? "   ·   и ещё " + (r.size() - 1) : ""));
+        newEps.setVisibility(View.VISIBLE);
+    }
+
+    private void openWatch() {
+        Panel p = new Panel(this, "Что посмотреть", "Новые сериалы — фантастика и триллеры  ·  ★ — вы следите за сериями");
+        List<Shows.Show> fol = Shows.followed(this);
+        List<Shows.Show> picks = Shows.picks(this);
+        List<String> rel = Shows.released(this);
+        if (!rel.isEmpty()) {
+            TextView t = infoLine("🎬  " + TextUtils.join("   ·   ", rel));
+            t.setTextColor(0xFFFFC94D);
+            t.setSingleLine(true);
+            t.setEllipsize(TextUtils.TruncateAt.END);
+            p.body.addView(t);
+        }
+        if (fol.isEmpty() && picks.isEmpty()) {
+            TextView t = infoLine("Собираю подборку…");
+            t.setPadding(0, dp(40), 0, dp(40));
+            p.body.addView(t);
+            Shows.refresh(this, () -> {
+                if (panel != p) return;
+                if (Shows.picks(this).isEmpty()) t.setText("Не получилось загрузить подборку — проверьте интернет и откройте ещё раз");
+                else openWatch();
+            });
+            View close = Panel.action(this, "Закрыть", this::closePanel);
+            p.body.addView(close, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            showPanel(p, close);
+            return;
+        }
+        LinearLayout strip = p.strip();
+        java.util.Set<Integer> seen = new java.util.HashSet<>();
+        View first = null, focus = null;
+        for (Shows.Show s : fol) {
+            seen.add(s.id);
+            View c = showCard(s, strip, true);
+            if (first == null) first = c;
+            if (s.id == watchFocus) focus = c;
+        }
+        for (Shows.Show s : picks) {
+            if (!seen.add(s.id)) continue;
+            View c = showCard(s, strip, false);
+            if (first == null) first = c;
+            if (s.id == watchFocus) focus = c;
+        }
+        p.count.setText(fol.isEmpty() ? plural(picks.size(), "новинка", "новинки", "новинок")
+                : "слежу: " + fol.size() + "  ·  " + plural(picks.size(), "новинка", "новинки", "новинок"));
+        watchFocus = 0;
+        showPanel(p, focus != null ? focus : first);
+    }
+
+    private View showCard(Shows.Show s, LinearLayout strip, boolean followed) {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(8), dp(8), dp(8), dp(10));
+        Panel.cardStyle(card, 18);
+
+        FrameLayout pic = new FrameLayout(this);
+        ImageView iv = new ImageView(this);
+        iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        iv.setBackground(Ui.round(0x22FFFFFF, dp(12), 0, 0));
+        iv.setClipToOutline(true);
+        pic.addView(iv, match());
+        String r = s.shortRating();
+        if (!r.isEmpty()) {
+            TextView rt = Ui.text(this, 12, 600, 0xFFFFFFFF);
+            rt.setShadowLayer(0, 0, 0, 0);
+            rt.setText(r);
+            rt.setPadding(dp(8), dp(2), dp(8), dp(2));
+            rt.setBackground(Ui.round(0xCC000000, dp(100), 0, 0));
+            pic.addView(rt, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                    Gravity.TOP | Gravity.START) {{ setMargins(dp(6), dp(6), 0, 0); }});
+        }
+        if (followed) {
+            TextView st = Ui.text(this, 13, 600, 0xFF111111);
+            st.setShadowLayer(0, 0, 0, 0);
+            st.setText("★");
+            st.setGravity(Gravity.CENTER);
+            st.setBackground(Ui.round(0xFFFFC94D, dp(100), 0, 0));
+            pic.addView(st, new FrameLayout.LayoutParams(dp(24), dp(24), Gravity.TOP | Gravity.END) {{ setMargins(0, dp(6), dp(6), 0); }});
+        }
+        card.addView(pic, new LinearLayout.LayoutParams(dp(116), dp(172)));
+        Shows.poster(iv, s.image, dp(116));
+
+        TextView name = Ui.text(this, 14, 500, 0xFFFFFFFF);
+        name.setShadowLayer(0, 0, 0, 0);
+        name.setText(s.title);
+        name.setMaxLines(2);
+        name.setEllipsize(TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams nl = new LinearLayout.LayoutParams(dp(116), ViewGroup.LayoutParams.WRAP_CONTENT);
+        nl.topMargin = dp(8);
+        card.addView(name, nl);
+
+        TextView sub = Ui.text(this, 12, 400, 0xB3FFFFFF);
+        sub.setShadowLayer(0, 0, 0, 0);
+        sub.setSingleLine(true);
+        sub.setEllipsize(TextUtils.TruncateAt.END);
+        String line = s.year > 0 ? String.valueOf(s.year) : "";
+        if (followed) {
+            Shows.Ep n = Shows.next(this, s.id);
+            if (n != null) { line = n.num + " серия — " + Shows.when(n.air); sub.setTextColor(0xFFFFC94D); }
+        } else if (!s.genres.isEmpty()) line += (line.isEmpty() ? "" : " · ") + s.genres.split(",")[0];
+        sub.setText(line);
+        LinearLayout.LayoutParams sl = new LinearLayout.LayoutParams(dp(116), ViewGroup.LayoutParams.WRAP_CONTENT);
+        sl.topMargin = dp(2);
+        card.addView(sub, sl);
+
+        card.setOnClickListener(v -> openShow(s));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        if (strip.getChildCount() > 0) lp.leftMargin = dp(14);
+        strip.addView(card, lp);
+        return card;
+    }
+
+    private static String statusRu(String st) {
+        switch (st) {
+            case "Returning Series": return "Продолжается";
+            case "New Series": return "Новый сериал";
+            case "Canceled/Ended": return "Закончен";
+            case "TBD/On The Bubble": return "Продление под вопросом";
+            case "In Development": return "В разработке";
+            default: return "";
+        }
+    }
+
+    private void openShow(Shows.Show s) {
+        watchFocus = s.id;
+        Panel p = new Panel(this, s.title, s.orig.equals(s.title) ? "" : s.orig);
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+
+        ImageView iv = new ImageView(this);
+        iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        iv.setBackground(Ui.round(0x22FFFFFF, dp(14), 0, 0));
+        iv.setClipToOutline(true);
+        row.addView(iv, new LinearLayout.LayoutParams(dp(150), dp(222)));
+        Shows.poster(iv, s.image, dp(150));
+
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        StringBuilder meta = new StringBuilder();
+        if (s.year > 0) meta.append(s.year);
+        if (!s.genres.isEmpty()) meta.append(meta.length() > 0 ? "  ·  " : "").append(s.genres);
+        String rt = s.ratingText();
+        if (!rt.isEmpty()) meta.append(meta.length() > 0 ? "  ·  " : "").append(rt);
+        String st = statusRu(s.status);
+        if (!st.isEmpty()) meta.append(meta.length() > 0 ? "  ·  " : "").append(st);
+        col.addView(infoLine(meta.toString()));
+
+        boolean fol = Shows.isFollowed(this, s.id);
+        TextView epLine = infoLine("");
+        epLine.setTextColor(0xFFFFC94D);
+        epLine.setVisibility(View.GONE);
+        LinearLayout.LayoutParams el = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        el.topMargin = dp(8);
+        col.addView(epLine, el);
+        Runnable fillEp = () -> {
+            if (!Shows.isFollowed(this, s.id)) { epLine.setVisibility(View.GONE); return; }
+            Shows.Ep last = Shows.lastAired(this, s.id), next = Shows.next(this, s.id);
+            StringBuilder b = new StringBuilder();
+            if (last != null) b.append("Вышла ").append(last.num).append(" серия ").append(last.season).append(" сезона — ").append(Shows.when(last.air));
+            if (next != null) b.append(b.length() > 0 ? "   ·   " : "").append("следующая ").append(next.num)
+                    .append(" серия — ").append(Shows.when(next.air));
+            if (b.length() == 0) b.append("Новых серий пока не объявлено — покажу на главном, когда выйдут");
+            epLine.setText(b.toString());
+            epLine.setVisibility(View.VISIBLE);
+        };
+        if (fol) fillEp.run();
+
+        if (!s.desc.isEmpty()) {
+            TextView d = Ui.text(this, 15, 400, 0xCCFFFFFF);
+            d.setShadowLayer(0, 0, 0, 0);
+            d.setText(s.desc);
+            d.setMaxLines(6);
+            d.setEllipsize(TextUtils.TruncateAt.END);
+            d.setLineSpacing(0, 1.15f);
+            LinearLayout.LayoutParams dl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            dl.topMargin = dp(12);
+            col.addView(d, dl);
+        }
+
+        LinearLayout acts = new LinearLayout(this);
+        View first = null;
+        if (Shows.installed(this, Shows.ZONA)) {
+            first = addAction(acts, "Смотреть в Зоне", () -> {
+                closePanel();
+                if (!Shows.openZona(this, s)) Toast.makeText(this, "Не получилось открыть Зону", Toast.LENGTH_SHORT).show();
+            });
+        }
+        if (Shows.installed(this, Shows.NUM)) {
+            View n = addAction(acts, "Открыть в NUM", () -> {
+                closePanel();
+                Shows.openNum(this, s, () -> Toast.makeText(this, "В NUM этот сериал по ссылке не нашёлся — открыл NUM, поищите по названию",
+                        Toast.LENGTH_LONG).show());
+            });
+            if (first == null) first = n;
+        }
+        TextView[] follow = new TextView[1];
+        follow[0] = (TextView) addAction(acts, fol ? "★ Не следить" : "☆ Следить за сериями", () -> {
+            boolean on = !Shows.isFollowed(this, s.id);
+            follow[0].setText(on ? "★ Не следить" : "☆ Следить за сериями");
+            if (on) {
+                epLine.setText("Проверяю даты серий…");
+                epLine.setVisibility(View.VISIBLE);
+                Toast.makeText(this, "В день выхода новой серии напишу на главном экране — на обоих телевизорах", Toast.LENGTH_LONG).show();
+            } else epLine.setVisibility(View.GONE);
+            Shows.setFollowed(this, s, on, () -> {
+                updateNewEps();
+                if (panel == p) fillEp.run();
+            });
+        });
+        if (first == null) first = follow[0];
+        LinearLayout.LayoutParams al = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        al.topMargin = dp(18);
+        col.addView(acts, al);
+
+        LinearLayout.LayoutParams cl = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        cl.leftMargin = dp(26);
+        row.addView(col, cl);
+        p.body.addView(row);
+        detailPanel = p;
+        showPanel(p, first);
     }
 }
