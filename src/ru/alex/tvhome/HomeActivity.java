@@ -160,6 +160,13 @@ public class HomeActivity extends Activity {
         closePanel();
         if (moving != null) endMove();
         focusFirstTile();
+        // отладка из adb: am start -n ru.alex.tvhome/.HomeActivity --es open watch|show:<id>
+        String open = intent.getStringExtra("open");
+        if ("watch".equals(open)) openWatch();
+        else if (open != null && open.startsWith("show:")) {
+            int id = Integer.parseInt(open.substring(5));
+            for (Shows.Show sh : Shows.picks(this)) if (sh.id == id) { openShow(sh); break; }
+        }
     }
 
     private long whatsNewAt;

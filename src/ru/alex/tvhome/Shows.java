@@ -392,7 +392,10 @@ final class Shows {
     private static void haSync(Context c) {
         try {
             JSONObject r = haCall(c, new JSONObject().put("type", "frontend/get_user_data").put("key", HA_KEY));
-            if (r == null || !r.optBoolean("success")) return;
+            if (r == null || !r.optBoolean("success")) {
+                Log.i(Net.TAG, "shows: HA не ответил (" + (HaConfig.enabled(c) ? "ha " + HaClient.status : "HA не настроен") + "): " + r);
+                return;
+            }
             JSONObject res = r.optJSONObject("result");
             JSONObject remote = res == null ? null : res.optJSONObject("value");
             JSONObject local = followDoc(c);
