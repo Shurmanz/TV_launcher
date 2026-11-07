@@ -130,11 +130,13 @@ final class PeerSync {
             @Override public void onServiceFound(NsdServiceInfo i) { synchronized (seen) { seen.add(i); } }
             @Override public void onServiceLost(NsdServiceInfo i) { }
         };
+        Log.i(Net.TAG, "peer: ищу соседей, известные " + found);
         try {
             nm.discoverServices(TYPE, NsdManager.PROTOCOL_DNS_SD, dl);
             Thread.sleep(3000);
             nm.stopServiceDiscovery(dl);
-        } catch (Exception e) { Net.log("peer discover", e); }
+        } catch (Throwable e) { Log.w(Net.TAG, "peer discover: " + e); }
+        Log.i(Net.TAG, "peer: mDNS нашёл " + seen.size());
         String me = HaSetupServer.ip();
         java.util.List<NsdServiceInfo> list;
         synchronized (seen) { list = new java.util.ArrayList<>(seen); }
@@ -151,7 +153,8 @@ final class PeerSync {
                     }
                 });
                 synchronized (lock) { lock.wait(3000); }
-            } catch (Exception e) { Net.log("peer resolve", e); }
+            } catch (Throwable e) { Log.w(Net.TAG, "peer resolve: " + e); }
+            Log.i(Net.TAG, "peer: " + i.getServiceName() + " → " + ip[0]);
             if (ip[0] != null && !ip[0].equals(me) && !ip[0].contains(":")) {
                 found.add(ip[0]);
                 rememberPeer(c, ip[0]);
@@ -191,6 +194,7 @@ final class PeerSync {
         start(c);
         JSONObject mine = Shows.followDoc(c);
         Set<String> ps = peers(c);
+        Log.i(Net.TAG, "peer: соседи " + ps);
         if (ps.isEmpty()) return;
         long best = mine.optLong("t");
         for (String ip : ps) {

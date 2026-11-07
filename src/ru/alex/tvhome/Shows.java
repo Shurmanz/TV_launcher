@@ -223,8 +223,8 @@ final class Shows {
                 if (now - prefs(app).getLong("picks_at", 0) > PICKS_TTL) fetchPicks(app);
                 if (!token(app).isEmpty() && now - prefs(app).getLong("films_at", 0) > PICKS_TTL) fetchFilms(app);
                 if (now - prefs(app).getLong("eps_at", 0) > EPS_TTL) fetchEpisodes(app);
-            } catch (Exception e) {
-                Net.log("shows refresh", e);
+            } catch (Throwable e) {
+                Log.w(Net.TAG, "shows refresh: " + e, e);
             } finally {
                 refreshing = false;
                 if (done != null) ui.post(done);
