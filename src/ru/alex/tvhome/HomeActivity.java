@@ -2317,16 +2317,18 @@ public class HomeActivity extends Activity {
             st.setBackground(Ui.round(0xFFFFC94D, dp(100), 0, 0));
             pic.addView(st, new FrameLayout.LayoutParams(dp(24), dp(24), Gravity.TOP | Gravity.END) {{ setMargins(0, dp(6), dp(6), 0); }});
         }
-        card.addView(pic, new LinearLayout.LayoutParams(dp(132), dp(198)));
-        Shows.poster(iv, s.image, dp(132));
+        card.addView(pic, new LinearLayout.LayoutParams(dp(126), dp(186)));
+        Shows.poster(iv, s.image, dp(126));
 
         TextView name = Ui.text(this, 14, 500, 0xFFFFFFFF);
         name.setShadowLayer(0, 0, 0, 0);
         name.setText(s.title);
-        name.setTextSize(15);
-        name.setMaxLines(1);
+        name.setTextSize(14);
+        name.setMaxLines(2); // длинное название — переносом на вторую строку
+        name.setLines(2);    // у всех карточек одинаковая высота
+        name.setLineSpacing(0, 0.95f);
         name.setEllipsize(TextUtils.TruncateAt.END);
-        LinearLayout.LayoutParams nl = new LinearLayout.LayoutParams(dp(132), ViewGroup.LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams nl = new LinearLayout.LayoutParams(dp(126), ViewGroup.LayoutParams.WRAP_CONTENT);
         nl.topMargin = dp(8);
         card.addView(name, nl);
 
@@ -2342,7 +2344,7 @@ public class HomeActivity extends Activity {
             line = Shows.digitalText(s).replace("в цифре с ", "цифра ");
         } else if (!s.genres.isEmpty()) line += (line.isEmpty() ? "" : " · ") + s.genres.split(",")[0];
         sub.setText(line);
-        LinearLayout.LayoutParams sl = new LinearLayout.LayoutParams(dp(132), ViewGroup.LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams sl = new LinearLayout.LayoutParams(dp(126), ViewGroup.LayoutParams.WRAP_CONTENT);
         sl.topMargin = dp(2);
         card.addView(sub, sl);
 
