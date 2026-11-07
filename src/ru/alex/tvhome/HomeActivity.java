@@ -1243,14 +1243,6 @@ public class HomeActivity extends Activity {
                 : "space".equals(bgMode) ? "Космос: снимки James Webb, Hubble и ESO в 4K, в случайном порядке."
                 : "Фото природы под время суток, сезон и погоду.", bgr);
 
-        LinearLayout bd = new LinearLayout(this);
-        boolean badgeOn = MediaBadge.enabled(this);
-        addAction(bd, (badgeOn ? "✓ " : "") + "Показывать", () -> setBadge(p, true));
-        addAction(bd, (badgeOn ? "" : "✓ ") + "Не показывать", () -> setBadge(p, false));
-        section(p, "Формат видео при старте", (!MediaBadge.permitted(this) || !adb) && badgeOn
-                ? "Нужна «Оптимизация» → «Подключить»: Slauncher выдаст себе доступ к журналу видеотракта."
-                : "На 5 секунд в углу: 4K · HDR10 · 24 к/с · HEVC · Dolby Atmos.", bd);
-
         LinearLayout tr = new LinearLayout(this);
         addAction(tr, "Сохранить", () -> bg(p, "сохраняю…", () -> Transfer.save(this), n -> {
             Toast.makeText(this, "Сохранено: " + n + (Adb.known(this) ? " (Slauncher/settings)" : ""), Toast.LENGTH_LONG).show();

@@ -445,9 +445,6 @@ final class Optimizer {
             cmds.add("pm grant " + me + " android.permission.ACCESS_FINE_LOCATION");
         if (c.checkSelfPermission("android.permission.WRITE_SECURE_SETTINGS") != android.content.pm.PackageManager.PERMISSION_GRANTED)
             cmds.add("pm grant " + me + " android.permission.WRITE_SECURE_SETTINGS");
-        for (String perm : MediaBadge.PERMS) // плашка формата видео/звука: читать журнал видеотракта и dumpsys
-            if (c.checkSelfPermission(perm) != android.content.pm.PackageManager.PERMISSION_GRANTED)
-                cmds.add("pm grant " + me + " " + perm);
         if (!SetupActivity.dreamOn(c)) {
             cmds.add("settings put secure screensaver_components " + me + "/.NatureDream");
             cmds.add("settings put secure screensaver_enabled 1");
