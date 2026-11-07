@@ -15,6 +15,47 @@ import org.json.JSONObject;
 final class Updater {
     static final String VERSION_URL = "https://raw.githubusercontent.com/Shurmanz/TV_launcher/main/releases/version.json";
     static final String APK_URL = "https://raw.githubusercontent.com/Shurmanz/TV_launcher/main/releases/tvhome.apk";
+    /** Запасной адрес — jsDelivr (CDN с копией репозитория): выручает, когда raw.githubusercontent.com режет провайдер. */
+    static final String MIRROR_VERSION_URL = "https://cdn.jsdelivr.net/gh/Shurmanz/TV_launcher@main/releases/version.json";
+    static final String MIRROR_APK_URL = "https://cdn.jsdelivr.net/gh/Shurmanz/TV_launcher@main/releases/tvhome.apk";
+
+    /** Скачать APK: сначала GitHub, при ошибке или несовпадении контрольной суммы — зеркало. */
+    private static void fetchApk(Context c, java.io.File f) throws Exception {
+        String want = c.getSharedPreferences("update", Context.MODE_PRIVATE).getString("md5", "");
+        Exception last = null;
+        for (String url : new String[]{APK_URL + "?t=" + System.currentTimeMillis(), MIRROR_APK_URL}) {
+            try {
+                f.delete();
+                Net.download(url, f);
+                if (f.length() < 100_000) throw new Exception("файл слишком маленький: " + f.length());
+                if (!want.isEmpty() && !want.equalsIgnoreCase(md5(f))) throw new Exception("файл повреждён (контрольная сумма не сошлась)");
+                android.util.Log.i(Net.TAG, "update: скачан с " + url);
+                return;
+            } catch (Exception e) {
+                Net.log("update download " + url, e);
+                last = e;
+            }
+        }
+        throw new Exception(last != null && last.getMessage() != null && last.getMessage().startsWith("файл") ? last.getMessage()
+                : "нет связи с сервером обновлений");
+    }
+
+    static String md5(java.io.File f) throws Exception {
+        java.security.MessageDigest md = java.security.MessageDigest.getInstance("MD5");
+        try (java.io.InputStream in = new java.io.FileInputStream(f)) {
+            byte[] b = new byte[65536];
+            int n;
+            while ((n = in.read(b)) > 0) md.update(b, 0, n);
+        }
+        StringBuilder sb = new StringBuilder();
+        for (byte x : md.digest()) sb.append(String.format("%02x", x));
+        return sb.toString();
+    }
+
+    /** Последняя проверка не достучалась ни до GitHub, ни до зеркала. */
+    static boolean checkFailed(Context c) {
+        return c.getSharedPreferences("update", Context.MODE_PRIVATE).getBoolean("check_failed", false);
+    }
 
     interface Progress { void onState(String text, boolean done); }
 
@@ -39,9 +80,7 @@ final class Updater {
             java.io.File f = new java.io.File(c.getCacheDir(), "update.apk");
             try {
                 ui.post(() -> cb.onState("Скачиваю…", false));
-                f.delete();
-                Net.download(APK_URL + "?t=" + System.currentTimeMillis(), f);
-                if (f.length() < 100_000) throw new Exception("файл слишком маленький: " + f.length());
+                fetchApk(c, f);
                 android.content.pm.PackageInstaller pi = c.getPackageManager().getPackageInstaller();
                 android.content.pm.PackageInstaller.SessionParams sp = new android.content.pm.PackageInstaller.SessionParams(
                         android.content.pm.PackageInstaller.SessionParams.MODE_FULL_INSTALL);
@@ -74,9 +113,7 @@ final class Updater {
             try {
                 ui.post(() -> cb.onState("Скачиваю обновление…", false));
                 java.io.File f = new java.io.File(c.getExternalFilesDir(null), "update.apk");
-                f.delete();
-                Net.download(APK_URL + "?t=" + System.currentTimeMillis(), f);
-                if (f.length() < 100_000) throw new Exception("файл слишком маленький: " + f.length());
+                fetchApk(c, f);
                 ui.post(() -> cb.onState("Устанавливаю — Slauncher перезапустится сам", false));
                 Optimizer.silentInstall(c, f);
             } catch (Exception e) {
@@ -132,13 +169,20 @@ final class Updater {
         }
         Handler ui = new Handler(Looper.getMainLooper());
         new Thread(() -> {
-            try {
-                JSONObject o = new JSONObject(Net.getText(VERSION_URL + "?t=" + System.currentTimeMillis()));
+            JSONObject o = null;
+            for (String url : new String[]{VERSION_URL + "?t=" + System.currentTimeMillis(), MIRROR_VERSION_URL}) {
+                try { o = new JSONObject(Net.getText(url)); break; }
+                catch (Exception e) { Net.log("update check " + url, e); }
+            }
+            if (o != null) {
                 p.edit().putInt("remote", o.optInt("versionCode", 0)).putString("name", o.optString("versionName", ""))
+                        .putString("md5", o.optString("md5", "")).putBoolean("check_failed", false)
                         .putLong("checked", System.currentTimeMillis()).apply();
                 android.util.Log.i(Net.TAG, "update check: remote " + o.optInt("versionCode") + ", mine " + myVersion(c));
-            } catch (Exception e) {
-                Net.log("update check", e);
+            } else {
+                // ни GitHub, ни зеркало не ответили — честно говорим, а не «установлена последняя версия»;
+                // время проверки не запоминаем, чтобы при следующем открытии попробовать снова
+                p.edit().putBoolean("check_failed", true).apply();
             }
             if (cb != null) ui.post(() -> cb.onResult(available(c), remoteName(c)));
         }).start();

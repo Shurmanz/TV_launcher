@@ -770,6 +770,7 @@ public class HomeActivity extends Activity {
         View first = addAction(upd, avail ? "Обновить до " + Updater.remoteName(this) : "Проверить обновление", () -> runUpdate(p));
         addAction(upd, "Что нового", () -> { closePanel(); root.postDelayed(this::openWhatsNew, 200); });
         section(p, "Обновление", avail ? "Доступна новая версия " + Updater.remoteName(this) + "."
+                : Updater.checkFailed(this) ? "Не удалось проверить: нет связи с сервером обновлений (GitHub и запасной адрес)."
                 : "Установлена последняя проверенная версия.", upd);
 
         LinearLayout ha = new LinearLayout(this);
@@ -812,7 +813,13 @@ public class HomeActivity extends Activity {
 
     private void runUpdate(Panel p) {
         Updater.check(this, true, (avail, name) -> {
-            if (!avail) { Toast.makeText(this, "Установлена последняя версия " + Updater.myName(this), Toast.LENGTH_LONG).show(); return; }
+            if (!avail) {
+                Toast.makeText(this, Updater.checkFailed(this)
+                        ? "Не удалось проверить обновление: нет связи с сервером. Проверьте интернет и попробуйте позже"
+                        : "Установлена последняя версия " + Updater.myName(this), Toast.LENGTH_LONG).show();
+                if (p != null && panel == p) openAppSettings();
+                return;
+            }
             if (Adb.known(this)) { // тихо, без экрана подтверждения
                 Updater.silentInstall(this, (text, done) -> Toast.makeText(this, text, Toast.LENGTH_LONG).show());
                 return;
