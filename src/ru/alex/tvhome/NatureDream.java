@@ -64,6 +64,7 @@ public class NatureDream extends DreamService {
         pl.setMargins(0, 0, Math.round(64 * d), Math.round(56 * d));
         root.addView(caption, pl);
         wall.setCaptionListener(caption::show);
+        wall.setSpace(Comfort.bgSpace(this)); // выбран «Космос» — и заставка космическая
 
         setContentView(root);
     }

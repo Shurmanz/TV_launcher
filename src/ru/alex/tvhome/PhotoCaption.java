@@ -33,7 +33,7 @@ final class PhotoCaption extends TextView {
 
     private void apply() {
         if (shown == null || shown.isEmpty()) { setText(""); setAlpha(0f); return; }
-        setText("📍 " + shown);
+        setText(shown.startsWith("✦") ? shown : "📍 " + shown); // у космоса своя звёздочка
         animate().alpha(1f).setDuration(900).start();
     }
 }

@@ -103,6 +103,7 @@ public class HomeActivity extends Activity {
         super.onResume();
         resumed = true;
         reloadApps();
+        wall.setSpace(Comfort.bgSpace(this));
         wall.setSky(Comfort.bgSky(this));
         wall.start();
         updateNet();
@@ -1234,10 +1235,12 @@ public class HomeActivity extends Activity {
         section(p, "При включении открывать", sp.isEmpty() ? "Главный экран Slauncher." : label(sp) + " (кнопка «Домой» — в Slauncher).", st);
 
         LinearLayout bgr = new LinearLayout(this);
-        boolean skyOn = Comfort.bgSky(this);
-        addAction(bgr, (skyOn ? "" : "✓ ") + "Фото природы", () -> setHomeBackground(false));
-        addAction(bgr, (skyOn ? "✓ " : "") + "Живая погода", () -> setHomeBackground(true));
-        section(p, "Фон главного экрана", skyOn ? "Живая погода: дождь, снег, туман — под погоду и время суток."
+        String bgMode = Comfort.bg(this);
+        addAction(bgr, ("photo".equals(bgMode) ? "✓ " : "") + "Фото природы", () -> setHomeBackground("photo"));
+        addAction(bgr, ("space".equals(bgMode) ? "✓ " : "") + "Космос", () -> setHomeBackground("space"));
+        addAction(bgr, ("sky".equals(bgMode) ? "✓ " : "") + "Живая погода", () -> setHomeBackground("sky"));
+        section(p, "Фон главного экрана", "sky".equals(bgMode) ? "Живая погода: дождь, снег, туман — под погоду и время суток."
+                : "space".equals(bgMode) ? "Космос: снимки James Webb, Hubble и ESO в 4K, в случайном порядке."
                 : "Фото природы под время суток, сезон и погоду.", bgr);
 
         LinearLayout tr = new LinearLayout(this);
@@ -1260,9 +1263,22 @@ public class HomeActivity extends Activity {
         showPanel(p, first);
     }
 
-    private void setHomeBackground(boolean sky) {
-        Comfort.setBgSky(this, sky);
-        wall.setSky(sky);
+    private void setBadge(Panel p, boolean on) {
+        MediaBadge.setEnabled(this, on);
+        if (on && !MediaBadge.permitted(this) && Adb.known(this)) {
+            bg(p, "выдаю доступ…", () -> {
+                for (String perm : MediaBadge.PERMS) Adb.sh(this, "pm grant " + getPackageName() + " " + perm);
+                return MediaBadge.permitted(this);
+            }, ok -> openComfort());
+            return;
+        }
+        openComfort();
+    }
+
+    private void setHomeBackground(String mode) {
+        Comfort.setBg(this, mode);
+        wall.setSpace("space".equals(mode));
+        wall.setSky("sky".equals(mode));
         openComfort();
     }
 

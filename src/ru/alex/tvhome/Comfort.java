@@ -114,9 +114,16 @@ final class Comfort {
 
     // ---------- фон главного экрана ----------
 
-    /** true — «Живая погода» (абстрактный анимированный фон), false — фото природы. */
-    static boolean bgSky(Context c) { return "sky".equals(p(c).getString("bg", "photo")); }
-    static void setBgSky(Context c, boolean on) { p(c).edit().putString("bg", on ? "sky" : "photo").apply(); }
+    /** Фон: "photo" — фото природы, "sky" — «Живая погода», "space" — 4K-снимки космоса. */
+    static String bg(Context c) {
+        String v = p(c).getString("bg", "photo");
+        return "sky".equals(v) || "space".equals(v) ? v : "photo";
+    }
+    static void setBg(Context c, String v) { p(c).edit().putString("bg", v).apply(); }
+    /** true — «Живая погода» (абстрактный анимированный фон). */
+    static boolean bgSky(Context c) { return "sky".equals(bg(c)); }
+    static boolean bgSpace(Context c) { return "space".equals(bg(c)); }
+    static void setBgSky(Context c, boolean on) { setBg(c, on ? "sky" : "photo"); }
 
     // ---------- старт с приложения и прошлое приложение ----------
 
@@ -178,7 +185,9 @@ final class Comfort {
     // ---------- что нового ----------
 
     static final String WHATS_NEW =
-            "• Фото природы: в разы больше снимков (лучшие фото Wikimedia, больше сюжетов) и без повторов — "
+            "• Новый фон «Космос»: снимки телескопов James Webb, Hubble и ESO в 4K, в случайном порядке "
+                    + "(Настройки Slauncher → «Удобство» → «Фон главного экрана»).\n"
+                    + "• Фото природы: в разы больше снимков (лучшие фото Wikimedia, больше сюжетов) и без повторов — "
                     + "сначала показываются те, что ещё не видели. В углу — подпись, где снято.\n"
                     + "• Новый фон «Живая погода»: дождь льётся, снег падает, туман плывёт — под погоду и время суток. "
                     + "Выбор «Фото / Погода» — в Настройки Slauncher → «Удобство».\n"

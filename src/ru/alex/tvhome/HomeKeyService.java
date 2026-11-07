@@ -90,6 +90,7 @@ public class HomeKeyService extends AccessibilityService {
     protected void onServiceConnected() {
         super.onServiceConnected();
         HaClient.ensure(this); // служба живёт всегда — держит связь с HA и карточки событий поверх фильма
+        // MediaBadge.start(this); // плашка формата видео — в релизе выключена (по просьбе), код оставлен на потом
         if (SystemClock.elapsedRealtime() < 10 * 60_000L) {
             new android.os.Handler(android.os.Looper.getMainLooper())
                     .postDelayed(() -> openHome(SystemClock.elapsedRealtime()), 1500);
