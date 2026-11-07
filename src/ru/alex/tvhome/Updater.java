@@ -86,13 +86,15 @@ final class Updater {
                         android.content.pm.PackageInstaller.SessionParams.MODE_FULL_INSTALL);
                 sp.setAppPackageName(c.getPackageName());
                 int id = pi.createSession(sp);
-                try (android.content.pm.PackageInstaller.Session s = pi.openSession(id);
-                     java.io.InputStream in = new java.io.FileInputStream(f);
-                     java.io.OutputStream out = s.openWrite("slauncher.apk", 0, f.length())) {
-                    byte[] b = new byte[65536];
-                    int n;
-                    while ((n = in.read(b)) > 0) out.write(b, 0, n);
-                    s.fsync(out);
+                try (android.content.pm.PackageInstaller.Session s = pi.openSession(id)) {
+                    // поток записи обязательно закрыть ДО commit — иначе Android отвечает «Files still open»
+                    try (java.io.InputStream in = new java.io.FileInputStream(f);
+                         java.io.OutputStream out = s.openWrite("slauncher.apk", 0, f.length())) {
+                        byte[] b = new byte[65536];
+                        int n;
+                        while ((n = in.read(b)) > 0) out.write(b, 0, n);
+                        s.fsync(out);
+                    }
                     android.content.Intent i = new android.content.Intent(c, InstallReceiver.class);
                     android.app.PendingIntent pend = android.app.PendingIntent.getBroadcast(c, id, i,
                             android.app.PendingIntent.FLAG_UPDATE_CURRENT);
