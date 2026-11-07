@@ -358,7 +358,14 @@ final class Wallpapers {
             "launch", "rocket", "team", "scientist", "engineer", "astronaut", "crew", "poster", "banner", "text",
             "plot", "data", "observatory building", "dome", "antenna", "cleanroom", "clean room", "assembly", "model of",
             "instrument", "vibration", "testing", " test", "hardware", "spacecraft", "sunshield", "cryo", "miri", "nircam",
-            "nirspec", "segment", "unboxing", "shipping", "hangar", "facility", "workers", "technician"};
+            "nirspec", "segment", "unboxing", "shipping", "hangar", "facility", "workers", "technician",
+            // фото с мероприятий NASA (люди на сцене): «(NHQ2026…)», панели, брифинги, лекции
+            "(nhq", "nhq20", "(ksc", "(jsc", "event", "panel", "briefing", "conference", "ceremony", "symposium",
+            "lecture", "speaks", "speech", "talk ", "presentation", "audience", "award", "visit", "administrator",
+            "meeting", "workshop", "press", "media day", "celebration", "anniversary", "legacy", "exhibit", "museum"};
+
+    /** То же самое — минусами прямо в поиске Commons, чтобы такое не занимало место в выдаче. */
+    private static final String SPACE_MINUS = "-NHQ -panel -briefing -conference -ceremony -event -lecture -audience";
 
     static boolean spaceTitleOk(String title) {
         String t = " " + title.toLowerCase(Locale.ROOT).replace('_', ' ') + " ";
@@ -368,7 +375,7 @@ final class Wallpapers {
 
     /** Список 4K-снимков космоса: кеш на сутки, иначе свежий подбор. Порядок случайный, недавние — в конце. Вызывать в фоне. */
     List<String> spaceUrls() {
-        String key = "space_v2"; // v2 — без снимков аппаратуры телескопа
+        String key = "space_v3"; // v3 — без аппаратуры телескопа и фото с мероприятий NASA
         long ts = prefs.getLong(key + ".ts", 0);
         String saved = prefs.getString(key, null);
         if (saved != null && System.currentTimeMillis() - ts < SPACE_TTL) return order(visible(Arrays.asList(saved.split("\n"))));
@@ -395,7 +402,7 @@ final class Wallpapers {
 
     /** Один запрос космоса: первая страница и ещё одна, если есть. Только превью 3840 px — оригиналы бывают по 100 МБ. */
     List<String> searchSpace(String query) throws Exception {
-        String search = query + " filew:>3839 filemime:image/jpeg";
+        String search = query + " " + SPACE_MINUS + " " + PEOPLE + " filew:>3839 filemime:image/jpeg";
         List<String> res = new ArrayList<>();
         int offset = 0;
         for (int pageNo = 0; pageNo < 2; pageNo++) {
