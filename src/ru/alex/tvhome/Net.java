@@ -66,6 +66,29 @@ final class Net {
         }
     }
 
+    /** POST JSON (для JSON-RPC вроде MyShows). Ответ — текст, при не-200 — исключение с кодом. */
+    static String postJson(String url, String body) throws Exception {
+        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+        c.setConnectTimeout(10000);
+        c.setReadTimeout(20000);
+        c.setRequestProperty("User-Agent", UA);
+        c.setRequestProperty("Content-Type", "application/json");
+        c.setRequestProperty("Accept-Language", "ru");
+        c.setDoOutput(true);
+        try (OutputStream out = c.getOutputStream()) { out.write(body.getBytes(StandardCharsets.UTF_8)); }
+        int code = c.getResponseCode();
+        if (code != 200) { c.disconnect(); throw new Exception("HTTP " + code + " " + url); }
+        try (InputStream in = c.getInputStream()) {
+            ByteArrayOutputStream bo = new ByteArrayOutputStream();
+            byte[] b = new byte[16384];
+            int n;
+            while ((n = in.read(b)) > 0) bo.write(b, 0, n);
+            return new String(bo.toByteArray(), StandardCharsets.UTF_8);
+        } finally {
+            c.disconnect();
+        }
+    }
+
     static void download(String url, File dst) throws Exception {
         File tmp = new File(dst.getPath() + ".part");
         HttpURLConnection c = open(url);

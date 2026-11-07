@@ -63,6 +63,20 @@ public class DebugReceiver extends BroadcastReceiver {
                                 + " | connected " + in.connected + " | device " + in.device);
                     }
                 }
+                String http = intent.getStringExtra("http"); // проба источника с сети телевизора
+                if (http != null) {
+                    String body = intent.getStringExtra("body");
+                    long t0 = System.currentTimeMillis();
+                    try {
+                        String r = body == null ? Net.getText(http) : Net.postJson(http, body);
+                        java.io.File f = new java.io.File(app.getExternalFilesDir(null), "probe.txt");
+                        try (java.io.FileOutputStream fo = new java.io.FileOutputStream(f)) { fo.write(r.getBytes("UTF-8")); }
+                        Log.i(Net.TAG, "probe ok " + (System.currentTimeMillis() - t0) + " ms, " + r.length() + " chars -> " + f + ": "
+                                + r.substring(0, Math.min(600, r.length())).replace('\n', ' '));
+                    } catch (Exception e) {
+                        Log.i(Net.TAG, "probe fail " + (System.currentTimeMillis() - t0) + " ms: " + e);
+                    }
+                }
                 if (intent.getBooleanExtra("space", false)) { // подобрать список «Космос» и показать, сколько нашлось
                     java.util.List<String> sp = new Wallpapers(app, true).spaceUrls();
                     Log.i(Net.TAG, "debug space: " + sp.size() + (sp.isEmpty() ? "" : " first=" + sp.get(0)));
