@@ -89,6 +89,7 @@ public class HomeKeyService extends AccessibilityService {
     @Override
     protected void onServiceConnected() {
         super.onServiceConnected();
+        PeerSync.start(this); // общий «Слежу» между телевизорами по Wi‑Fi
         HaClient.ensure(this); // служба живёт всегда — держит связь с HA и карточки событий поверх фильма
         // MediaBadge.start(this); // плашка формата видео — в релизе выключена (по просьбе), код оставлен на потом
         if (SystemClock.elapsedRealtime() < 10 * 60_000L) {

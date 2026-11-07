@@ -50,9 +50,10 @@ final class Shows {
     // ---------- модель ----------
 
     static final class Show {
-        int id, year, kpId, imdbId, watching, voted;
+        int id, year, kpId, imdbId, watching, voted, tmdbId;
         double rating, kp, imdb;
-        String title = "", orig = "", image = "", desc = "", status = "", genres = "";
+        boolean movie;
+        String title = "", orig = "", image = "", desc = "", status = "", genres = "", digital = "";
 
         static Show of(JSONObject o) {
             Show s = new Show();
@@ -69,8 +70,11 @@ final class Shows {
             s.imdbId = o.optInt("imdbId");
             s.kp = o.optDouble("kinopoiskRating", 0);
             s.imdb = o.optDouble("imdbRating", 0);
-            s.desc = o.optString("description", "").trim();
+            s.desc = clean(o.optString("description", ""));
             s.genres = o.optString("genres", "");
+            s.movie = o.optBoolean("movie");
+            s.tmdbId = o.optInt("tmdbId");
+            s.digital = o.optString("digital", "");
             JSONArray g = o.optJSONArray("genreIds");
             if (g != null) s.genres = genreNames(g);
             return s;
@@ -82,7 +86,8 @@ final class Shows {
                 o.put("id", id).put("title", title).put("titleOriginal", orig).put("year", year).put("status", status)
                         .put("watching", watching).put("voted", voted).put("rating", rating).put("image", image)
                         .put("kinopoiskId", kpId).put("imdbId", imdbId).put("kinopoiskRating", kp).put("imdbRating", imdb)
-                        .put("description", desc).put("genres", genres);
+                        .put("description", desc).put("genres", genres).put("movie", movie).put("tmdbId", tmdbId)
+                        .put("digital", digital);
             } catch (Exception ignored) { }
             return o;
         }
@@ -101,6 +106,13 @@ final class Shows {
             if (rating > 0) return String.format(Locale.US, "%.1f", rating * 2);
             return "";
         }
+    }
+
+    /** Описания на MyShows бывают с html (<p>, <br>, &nbsp;) — оставляем только текст. */
+    static String clean(String d) {
+        if (d == null) return "";
+        if (d.indexOf('<') >= 0 || d.indexOf('&') >= 0) d = android.text.Html.fromHtml(d, android.text.Html.FROM_HTML_MODE_LEGACY).toString();
+        return d.replace('\u00A0', ' ').replaceAll("\\s+", " ").trim();
     }
 
     static final class Ep {
@@ -160,7 +172,7 @@ final class Shows {
 
     // --- «Слежу»: {t: время изменения, list: [show…]}
 
-    private static JSONObject followDoc(Context c) {
+    static JSONObject followDoc(Context c) {
         try { return new JSONObject(prefs(c).getString("follow", "{\"t\":0,\"list\":[]}")); }
         catch (Exception e) { return new JSONObject(); }
     }
@@ -190,6 +202,7 @@ final class Shows {
         Context app = c.getApplicationContext();
         net.execute(() -> {
             haPut(app, doc);
+            PeerSync.push(app, doc);
             fetchEpisodes(app);
             if (done != null) ui.post(done);
         });
@@ -205,8 +218,10 @@ final class Shows {
         net.execute(() -> {
             try {
                 haSync(app);
+                PeerSync.sync(app);
                 long now = System.currentTimeMillis();
                 if (now - prefs(app).getLong("picks_at", 0) > PICKS_TTL) fetchPicks(app);
+                if (!token(app).isEmpty() && now - prefs(app).getLong("films_at", 0) > PICKS_TTL) fetchFilms(app);
                 if (now - prefs(app).getLong("eps_at", 0) > EPS_TTL) fetchEpisodes(app);
             } catch (Exception e) {
                 Net.log("shows refresh", e);
@@ -363,6 +378,165 @@ final class Shows {
         return x.getTimeInMillis();
     }
 
+
+    // ---------- фильмы: цифровые релизы (poiskkino.dev, бывш. kinopoisk.dev — неофициальный API Кинопоиска) ----------
+
+    private static final String KP = "https://api.poiskkino.dev";
+
+    static String token(Context c) { return prefs(c).getString("kp_token", ""); }
+
+    static String filmsError(Context c) { return prefs(c).getString("films_err", ""); }
+
+    static List<Show> films(Context c) {
+        List<Show> out = new ArrayList<>();
+        JSONObject o = readJson(file(c, "shows_films.json"));
+        JSONArray a = o == null ? null : o.optJSONArray("list");
+        if (a != null) for (int i = 0; i < a.length(); i++) out.add(Show.of(a.optJSONObject(i)));
+        return out;
+    }
+
+    /** Сохранить токен и сразу загрузить фильмы. done(ошибка или null) — в UI-потоке. */
+    static void setToken(Context c, String t, java.util.function.Consumer<String> done) {
+        Context app = c.getApplicationContext();
+        prefs(app).edit().putString("kp_token", t.trim()).putLong("films_at", 0).apply();
+        net.execute(() -> {
+            String err = null;
+            try { fetchFilms(app); } catch (Exception e) { err = e.getMessage(); }
+            final String er = err;
+            ui.post(() -> done.accept(er));
+        });
+    }
+
+    static void refreshFilms(Context c, Runnable done) {
+        Context app = c.getApplicationContext();
+        net.execute(() -> {
+            try { fetchFilms(app); } catch (Exception e) { Net.log("films", e); }
+            ui.post(done);
+        });
+    }
+
+    private static String kpGet(Context c, String pathQuery) throws Exception {
+        java.net.HttpURLConnection h = (java.net.HttpURLConnection) new java.net.URL(KP + pathQuery).openConnection();
+        h.setConnectTimeout(10000);
+        h.setReadTimeout(20000);
+        h.setRequestProperty("User-Agent", Net.UA);
+        h.setRequestProperty("Accept", "application/json");
+        h.setRequestProperty("X-API-KEY", token(c));
+        int code = h.getResponseCode();
+        if (code == 401 || code == 403) { h.disconnect(); throw new Exception("токен не подошёл (HTTP " + code + ")"); }
+        if (code != 200) { h.disconnect(); throw new Exception("HTTP " + code); }
+        try (java.io.InputStream in = h.getInputStream()) {
+            java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+            byte[] b = new byte[16384];
+            int n;
+            while ((n = in.read(b)) > 0) bo.write(b, 0, n);
+            return new String(bo.toByteArray(), "UTF-8");
+        } finally { h.disconnect(); }
+    }
+
+    private static String str(JSONObject o, String k) { return o == null || o.isNull(k) ? "" : o.optString(k, ""); }
+
+    static Show film(JSONObject o) {
+        Show s = new Show();
+        s.movie = true;
+        s.kpId = o.optInt("id");
+        s.id = -s.kpId; // свои id, чтобы не пересекались с MyShows
+        s.title = str(o, "name");
+        s.orig = str(o, "alternativeName");
+        if (s.orig.isEmpty()) s.orig = str(o, "enName");
+        if (s.title.isEmpty()) s.title = s.orig;
+        s.year = o.optInt("year");
+        JSONObject r = o.optJSONObject("rating");
+        if (r != null) { s.kp = r.optDouble("kp", 0); s.imdb = r.optDouble("imdb", 0); }
+        JSONObject v = o.optJSONObject("votes");
+        if (v != null) s.voted = v.optInt("kp");
+        JSONObject p = o.optJSONObject("poster");
+        if (p != null) { s.image = str(p, "previewUrl"); if (s.image.isEmpty()) s.image = str(p, "url"); }
+        s.desc = clean(str(o, "description"));
+        if (s.desc.isEmpty()) s.desc = clean(str(o, "shortDescription"));
+        JSONArray g = o.optJSONArray("genres");
+        List<String> gs = new ArrayList<>();
+        if (g != null) for (int i = 0; i < g.length() && gs.size() < 3; i++) gs.add(str(g.optJSONObject(i), "name"));
+        s.genres = android.text.TextUtils.join(", ", gs);
+        JSONObject ex = o.optJSONObject("externalId");
+        if (ex != null) {
+            String im = str(ex, "imdb").replaceAll("\\D", "");
+            if (!im.isEmpty()) try { s.imdbId = Integer.parseInt(im); } catch (Exception ignored) { }
+            s.tmdbId = ex.optInt("tmdb");
+        }
+        JSONObject pr = o.optJSONObject("premiere");
+        String d = str(pr, "digital");
+        if (d.length() >= 10) s.digital = d.substring(0, 10);
+        return s;
+    }
+
+    private static void fetchFilms(Context c) throws Exception {
+        if (token(c).isEmpty()) return;
+        SimpleDateFormat f = new SimpleDateFormat("dd.MM.yyyy", Locale.US);
+        long now = System.currentTimeMillis();
+        String range = f.format(new java.util.Date(now - 90 * 86400_000L)) + "-" + f.format(new java.util.Date(now));
+        Map<Integer, Show> m = new LinkedHashMap<>();
+        try {
+            for (String g : new String[]{"фантастика", "триллер"}) {
+                String q = "/v1.4/movie?page=1&limit=50&type=movie&sortField=premiere.digital&sortType=-1&notNullFields=poster.url"
+                        + "&genres.name=" + java.net.URLEncoder.encode(g, "UTF-8") + "&premiere.digital=" + range;
+                JSONArray docs = new JSONObject(kpGet(c, q)).optJSONArray("docs");
+                if (docs == null) continue;
+                for (int i = 0; i < docs.length(); i++) {
+                    Show s = film(docs.optJSONObject(i));
+                    if (s.kpId == 0 || (s.kp > 0 && s.kp < 5.0)) continue; // провальные — мимо
+                    if (!m.containsKey(s.kpId)) m.put(s.kpId, s);
+                }
+            }
+        } catch (Exception e) {
+            prefs(c).edit().putString("films_err", String.valueOf(e.getMessage())).apply();
+            throw e;
+        }
+        List<Show> list = new ArrayList<>(m.values());
+        Collections.sort(list, (a, b) -> b.digital.compareTo(a.digital)); // свежие цифровые релизы — первыми
+        if (list.size() > 30) list = new ArrayList<>(list.subList(0, 30));
+        JSONArray a = new JSONArray();
+        for (Show s : list) a.put(s.json());
+        writeJson(file(c, "shows_films.json"), new JSONObject().put("list", a));
+        prefs(c).edit().putLong("films_at", now).putString("films_err", "").apply();
+        Log.i(Net.TAG, "shows: фильмов в цифре " + list.size());
+    }
+
+    // ---------- поиск: сериалы (MyShows) + фильмы (Кинопоиск, если есть токен) ----------
+
+    static void search(Context c, String q, java.util.function.Consumer<List<Show>> done) {
+        Context app = c.getApplicationContext();
+        net.execute(() -> {
+            List<Show> out = new ArrayList<>();
+            try {
+                JSONArray a = rpc("shows.Search", new JSONObject().put("query", q)).optJSONArray("result");
+                if (a != null) for (int i = 0; i < a.length() && i < 12; i++) out.add(Show.of(a.optJSONObject(i)));
+            } catch (Exception e) { Net.log("search shows", e); }
+            if (!token(app).isEmpty()) {
+                try {
+                    JSONArray d = new JSONObject(kpGet(app, "/v1.4/movie/search?page=1&limit=10&query=" + java.net.URLEncoder.encode(q, "UTF-8")))
+                            .optJSONArray("docs");
+                    if (d != null) for (int i = 0; i < d.length(); i++) {
+                        JSONObject o = d.optJSONObject(i);
+                        String type = str(o, "type");
+                        if (!type.isEmpty() && !type.equals("movie") && !type.equals("cartoon")) continue; // сериалы уже есть из MyShows
+                        Show s = film(o);
+                        if (s.kpId != 0) out.add(s);
+                    }
+                } catch (Exception e) { Net.log("search films", e); }
+            }
+            ui.post(() -> done.accept(out));
+        });
+    }
+
+    static String digitalText(Show s) {
+        if (s.digital.isEmpty()) return "";
+        try {
+            java.util.Date d = new SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(s.digital);
+            return "в цифре с " + new SimpleDateFormat("d MMMM", new Locale("ru")).format(d);
+        } catch (Exception e) { return ""; }
+    }
+
     // ---------- синхронизация «Слежу» через Home Assistant ----------
 
     private static JSONObject haCall(Context c, JSONObject cmd) {
@@ -386,6 +560,15 @@ final class Shows {
     private static void haPut(Context c, JSONObject doc) {
         try { haCall(c, new JSONObject().put("type", "frontend/set_user_data").put("key", HA_KEY).put("value", doc)); }
         catch (Exception ignored) { }
+    }
+
+    /** Пришёл список «Слежу» с другого телевизора: берём, если он новее нашего. true — взяли. */
+    static boolean adopt(Context c, JSONObject remote) {
+        if (remote == null || remote.optJSONArray("list") == null) return false;
+        if (remote.optLong("t") <= followDoc(c).optLong("t")) return false;
+        prefs(c).edit().putString("follow", remote.toString()).putLong("eps_at", 0).apply();
+        Log.i(Net.TAG, "shows: «Слежу» взят с другого телевизора (" + remote.optJSONArray("list").length() + ")");
+        return true;
     }
 
     /** Новее то, у чего больше t: забираем из HA или отдаём в HA. */
@@ -421,7 +604,7 @@ final class Shows {
         try {
             Intent i;
             if (s.kpId > 0) {
-                i = new Intent(Intent.ACTION_VIEW, Uri.parse("https://www.kinopoisk.ru/series/" + s.kpId + "/"));
+                i = new Intent(Intent.ACTION_VIEW, Uri.parse("https://www.kinopoisk.ru/" + (s.movie ? "film/" : "series/") + s.kpId + "/"));
                 i.setComponent(new ComponentName(ZONA, ZONA_MAIN));
             } else {
                 i = c.getPackageManager().getLaunchIntentForPackage(ZONA);
@@ -445,7 +628,7 @@ final class Shows {
                 try {
                     Intent i;
                     if (tmdb > 0) {
-                        i = new Intent(Intent.ACTION_VIEW, Uri.parse("https://www.themoviedb.org/tv/" + tmdb));
+                        i = new Intent(Intent.ACTION_VIEW, Uri.parse("https://www.themoviedb.org/" + (s.movie ? "movie/" : "tv/") + tmdb));
                         i.setPackage(NUM);
                     } else {
                         i = app.getPackageManager().getLaunchIntentForPackage(NUM);
@@ -463,6 +646,7 @@ final class Shows {
     }
 
     private static int tmdb(Context c, Show s) {
+        if (s.tmdbId > 0) return s.tmdbId;
         int cached = prefs(c).getInt("tmdb_" + s.id, 0);
         if (cached != 0) return cached;
         if (s.imdbId <= 0) return -1;
@@ -473,8 +657,9 @@ final class Shows {
             JSONArray hits = r.optJSONObject("query").optJSONArray("search");
             if (hits == null || hits.length() == 0) return -1;
             String q = hits.optJSONObject(0).optString("title");
-            JSONObject cl = new JSONObject(Net.getText("https://www.wikidata.org/w/api.php?action=wbgetclaims&format=json&property=P4983&entity=" + q));
-            JSONArray p = cl.optJSONObject("claims").optJSONArray("P4983");
+            String prop = s.movie ? "P4947" : "P4983"; // TMDB id фильма / сериала
+            JSONObject cl = new JSONObject(Net.getText("https://www.wikidata.org/w/api.php?action=wbgetclaims&format=json&property=" + prop + "&entity=" + q));
+            JSONArray p = cl.optJSONObject("claims").optJSONArray(prop);
             if (p == null || p.length() == 0) return -1;
             int id = Integer.parseInt(p.optJSONObject(0).optJSONObject("mainsnak").optJSONObject("datavalue").optString("value"));
             prefs(c).edit().putInt("tmdb_" + s.id, id).apply();

@@ -162,10 +162,10 @@ public class HomeActivity extends Activity {
         focusFirstTile();
         // отладка из adb: am start -n ru.alex.tvhome/.HomeActivity --es open watch|show:<id>
         String open = intent.getStringExtra("open");
-        if ("watch".equals(open)) openWatch();
+        if ("watch".equals(open)) openWatchFresh();
         else if (open != null && open.startsWith("show:")) {
             int id = Integer.parseInt(open.substring(5));
-            for (Shows.Show sh : Shows.picks(this)) if (sh.id == id) { openShow(sh); break; }
+            for (Shows.Show sh : concat(Shows.picks(this), Shows.films(this))) if (sh.id == id) { openShow(sh); break; }
         }
     }
 
@@ -274,7 +274,7 @@ public class HomeActivity extends Activity {
         netLabel = (TextView) ((ViewGroup) net).getChildAt(1);
         chips.addView(net);
         chips.addView(chip(new Icon(Icon.ROCKET, 0xFFFFFFFF), "Ускорить", this::boost, null));
-        chips.addView(chip(new Icon(Icon.FILM, 0xFFFFFFFF), "Что посмотреть", v -> openWatch(), null));
+        chips.addView(chip(new Icon(Icon.FILM, 0xFFFFFFFF), "Что посмотреть", v -> openWatchFresh(), null));
         settingsIcon = new Icon(Icon.GEAR, 0xFFFFFFFF);
         chips.addView(chip(settingsIcon, "Настройки", v -> openGearMenu(),
                 v -> { openSleep(); return true; }));
@@ -300,7 +300,7 @@ public class HomeActivity extends Activity {
             Ui.focusScale(v, has, 1.04f);
             if (has) glow.hide();
         });
-        newEps.setOnClickListener(v -> openWatch());
+        newEps.setOnClickListener(v -> openWatchFresh());
         LinearLayout.LayoutParams nel = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         nel.topMargin = dp(10);
         left.addView(newEps, nel);
@@ -2039,51 +2039,214 @@ public class HomeActivity extends Activity {
         newEps.setVisibility(View.VISIBLE);
     }
 
-    private void openWatch() {
-        Panel p = new Panel(this, "Что посмотреть", "Новые сериалы — фантастика и триллеры  ·  ★ — вы следите за сериями");
-        List<Shows.Show> fol = Shows.followed(this);
-        List<Shows.Show> picks = Shows.picks(this);
-        List<String> rel = Shows.released(this);
-        if (!rel.isEmpty()) {
-            TextView t = infoLine("🎬  " + TextUtils.join("   ·   ", rel));
-            t.setTextColor(0xFFFFC94D);
-            t.setSingleLine(true);
-            t.setEllipsize(TextUtils.TruncateAt.END);
-            p.body.addView(t);
-        }
-        if (fol.isEmpty() && picks.isEmpty()) {
-            TextView t = infoLine("Собираю подборку…");
-            t.setPadding(0, dp(40), 0, dp(40));
-            p.body.addView(t);
-            Shows.refresh(this, () -> {
-                if (panel != p) return;
-                if (Shows.picks(this).isEmpty()) t.setText("Не получилось загрузить подборку — проверьте интернет и откройте ещё раз");
-                else openWatch();
-            });
-            View close = Panel.action(this, "Закрыть", this::closePanel);
-            p.body.addView(close, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-            showPanel(p, close);
-            return;
-        }
-        LinearLayout strip = p.strip();
-        java.util.Set<Integer> seen = new java.util.HashSet<>();
-        View first = null, focus = null;
-        for (Shows.Show s : fol) {
-            seen.add(s.id);
-            View c = showCard(s, strip, true);
-            if (first == null) first = c;
-            if (s.id == watchFocus) focus = c;
-        }
-        for (Shows.Show s : picks) {
-            if (!seen.add(s.id)) continue;
-            View c = showCard(s, strip, false);
-            if (first == null) first = c;
-            if (s.id == watchFocus) focus = c;
-        }
-        p.count.setText(fol.isEmpty() ? plural(picks.size(), "новинка", "новинки", "новинок")
-                : "слежу: " + fol.size() + "  ·  " + plural(picks.size(), "новинка", "новинки", "новинок"));
+    private String watchMode = "series"; // series | films | search
+    private String searchQ = "", watchTab;
+    private List<Shows.Show> searchRes;
+    private Panel watchPanel;
+
+    /** С главного экрана: всегда со вкладки «Сериалы». */
+    private void openWatchFresh() {
+        watchMode = "series";
         watchFocus = 0;
-        showPanel(p, focus != null ? focus : first);
+        watchTab = null;
+        openWatch();
+    }
+
+    private TextView watchTab(LinearLayout row, String text, String mode) {
+        boolean sel = mode.equals(watchMode);
+        TextView t = Ui.text(this, 15, sel ? 600 : 500, 0xFFFFFFFF);
+        t.setShadowLayer(0, 0, 0, 0);
+        t.setText(text);
+        t.setPadding(dp(18), dp(10), dp(18), dp(10));
+        t.setFocusable(true);
+        Runnable paint = () -> {
+            boolean f = t.isFocused();
+            t.setBackground(f ? Ui.round(0xFFFFFFFF, dp(100), 0, 0)
+                    : sel ? Ui.round(0x40FFFFFF, dp(100), dp(1.5f), 0xB3FFFFFF) : Ui.round(0x14FFFFFF, dp(100), dp(1), 0x24FFFFFF));
+            t.setTextColor(f ? 0xFF111111 : 0xFFFFFFFF);
+        };
+        paint.run();
+        t.setOnFocusChangeListener((v, has) -> paint.run());
+        t.setOnClickListener(v -> {
+            if (mode.equals(watchMode)) return;
+            watchMode = mode;
+            watchFocus = 0;
+            watchTab = mode;
+            openWatch();
+        });
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        if (row.getChildCount() > 0) lp.leftMargin = dp(10);
+        row.addView(t, lp);
+        return t;
+    }
+
+    private android.widget.EditText field(String hint, int widthDp) {
+        android.widget.EditText q = new android.widget.EditText(this);
+        q.setSingleLine(true);
+        q.setHint(hint);
+        q.setTextColor(0xFFFFFFFF);
+        q.setHintTextColor(0x80FFFFFF);
+        q.setTextSize(16);
+        q.setPadding(dp(18), dp(9), dp(18), dp(9));
+        q.setBackground(Ui.round(0x22FFFFFF, dp(100), dp(1), 0x33FFFFFF));
+        q.setOnFocusChangeListener((v, has) -> v.setBackground(Ui.round(has ? 0x33FFFFFF : 0x22FFFFFF, dp(100),
+                dp(has ? 2 : 1), has ? 0xE6FFFFFF : 0x33FFFFFF)));
+        q.setLayoutParams(new LinearLayout.LayoutParams(dp(widthDp), ViewGroup.LayoutParams.WRAP_CONTENT));
+        return q;
+    }
+
+    private void hideKeyboard(View v) {
+        ((android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(v.getWindowToken(), 0);
+    }
+
+    private void openWatch() {
+        Panel p = new Panel(this, "Что посмотреть", null);
+        watchPanel = p;
+
+        // вкладки и поиск
+        LinearLayout top = new LinearLayout(this);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        TextView tSeries = watchTab(top, "Сериалы", "series");
+        TextView tFilms = watchTab(top, "Фильмы в цифре", "films");
+        android.widget.EditText q = field("🔍  Найти сериал или фильм", 330);
+        q.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
+        if ("search".equals(watchMode)) q.setText(searchQ);
+        q.setOnEditorActionListener((v, id, ev) -> {
+            String text = q.getText().toString().trim();
+            if (text.isEmpty()) return true;
+            hideKeyboard(q);
+            watchMode = "search";
+            searchQ = text;
+            searchRes = null;
+            watchFocus = 0;
+            watchTab = null;
+            openWatch();
+            Shows.search(this, text, r -> {
+                if (!text.equals(searchQ) || !"search".equals(watchMode)) return;
+                searchRes = r;
+                if (panel == watchPanel) openWatch();
+            });
+            return true;
+        });
+        LinearLayout.LayoutParams ql = (LinearLayout.LayoutParams) q.getLayoutParams();
+        ql.leftMargin = dp(20);
+        top.addView(q, ql);
+        LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        tl.bottomMargin = dp(6);
+        p.body.addView(top, tl);
+
+        View tabFocus = "films".equals(watchTab) ? tFilms : "series".equals(watchTab) ? tSeries : null;
+        View[] fr = new View[2]; // первая карточка, карточка для возврата фокуса
+        List<Shows.Show> list = new ArrayList<>();
+        java.util.Set<Integer> followedIds = new java.util.HashSet<>();
+
+        if ("series".equals(watchMode)) {
+            List<Shows.Show> fol = Shows.followed(this);
+            List<Shows.Show> picks = Shows.picks(this);
+            for (Shows.Show s : fol) { followedIds.add(s.id); list.add(s); }
+            for (Shows.Show s : picks) if (!followedIds.contains(s.id)) list.add(s);
+            List<String> rel = Shows.released(this);
+            note(p, !rel.isEmpty() ? "🎬  " + TextUtils.join("   ·   ", rel) : "Новинки фантастики и триллеров  ·  ★ — вы следите за сериями",
+                    !rel.isEmpty());
+            p.count.setText(fol.isEmpty() ? plural(picks.size(), "новинка", "новинки", "новинок")
+                    : "слежу: " + fol.size() + "  ·  " + plural(picks.size(), "новинка", "новинки", "новинок"));
+            if (list.isEmpty()) {
+                note(p, "Собираю подборку…", false);
+                Shows.refresh(this, () -> { if (panel == p && !Shows.picks(this).isEmpty()) openWatch(); });
+            }
+        } else if ("films".equals(watchMode)) {
+            if (Shows.token(this).isEmpty()) {
+                tokenForm(p);
+                showPanel(p, tabFocus != null ? tabFocus : tFilms);
+                return;
+            }
+            list.addAll(Shows.films(this));
+            p.count.setText(list.isEmpty() ? "" : plural(list.size(), "фильм", "фильма", "фильмов"));
+            String err = Shows.filmsError(this);
+            if (list.isEmpty() && !err.isEmpty()) note(p, "Не получилось загрузить фильмы: " + err, true);
+            else note(p, "Фантастика и триллеры, вышедшие в цифре за последние 3 месяца — свежие первыми", false);
+            if (list.isEmpty()) {
+                if (err.isEmpty()) note(p, "Загружаю фильмы…", false);
+                Shows.refreshFilms(this, () -> { if (panel == p && (!Shows.films(this).isEmpty() || !Shows.filmsError(this).isEmpty())) openWatch(); });
+                View t = Panel.action(this, "Сменить токен", () -> { Shows.setToken(this, "", e -> { }); openWatch(); });
+                p.body.addView(t, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            }
+        } else { // поиск
+            for (Shows.Show s : Shows.followed(this)) followedIds.add(s.id);
+            if (searchRes == null) note(p, "Ищу «" + searchQ + "»…", false);
+            else if (searchRes.isEmpty()) note(p, "По запросу «" + searchQ + "» ничего не нашлось", false);
+            else {
+                note(p, "Найдено по запросу «" + searchQ + "»" + (Shows.token(this).isEmpty() ? "  ·  фильмы ищутся после ввода токена во вкладке «Фильмы в цифре»" : ""), false);
+                list.addAll(searchRes);
+                p.count.setText(plural(searchRes.size(), "результат", "результата", "результатов"));
+            }
+        }
+
+        if (!list.isEmpty()) {
+            LinearLayout strip = p.strip();
+            for (Shows.Show s : list) {
+                View c = showCard(s, strip, followedIds.contains(s.id));
+                if (fr[0] == null) fr[0] = c;
+                if (s.id == watchFocus) fr[1] = c;
+            }
+        }
+        View focus = fr[1] != null ? fr[1] : tabFocus != null ? tabFocus : "search".equals(watchMode) && searchRes != null && searchRes.isEmpty() ? q
+                : fr[0] != null ? fr[0] : tSeries;
+        watchTab = null;
+        showPanel(p, focus);
+    }
+
+    private static List<Shows.Show> concat(List<Shows.Show> a, List<Shows.Show> b) { List<Shows.Show> r = new ArrayList<>(a); r.addAll(b); return r; }
+
+    private void note(Panel p, String text, boolean accent) {
+        TextView t = infoLine(text);
+        t.setTextSize(14);
+        t.setTextColor(accent ? 0xFFFFC94D : 0xB3FFFFFF);
+        t.setSingleLine(true);
+        t.setEllipsize(TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams l = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        l.topMargin = dp(8);
+        p.body.addView(t, l);
+    }
+
+    /** Фильмам нужен токен poiskkino.dev (бывш. kinopoisk.dev): берётся у телеграм-бота, вводится здесь. */
+    private void tokenForm(Panel p) {
+        TextView how = infoLine("Фильмы в цифре берутся с Кинопоиска через сервис poiskkino.dev — нужен бесплатный токен.\n"
+                + "1. В Телеграме откройте бота @poiskkinodev_bot и получите токен.\n"
+                + "2. Вставьте его в поле ниже — проще всего через приложение Google TV на телефоне (клавиатура → «Вставить»).");
+        how.setTextSize(15);
+        how.setLineSpacing(0, 1.2f);
+        LinearLayout.LayoutParams hl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        hl.topMargin = dp(14);
+        p.body.addView(how, hl);
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        android.widget.EditText t = field("Токен", 420);
+        t.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_DONE);
+        row.addView(t);
+        TextView status = infoLine("");
+        status.setTextSize(14);
+        Runnable save = () -> {
+            String v = t.getText().toString().trim();
+            if (v.isEmpty()) return;
+            hideKeyboard(t);
+            status.setText("Проверяю токен и загружаю фильмы…");
+            Shows.setToken(this, v, err -> {
+                if (panel != p) return;
+                if (err == null) { Toast.makeText(this, "Токен сохранён ✓", Toast.LENGTH_SHORT).show(); openWatch(); }
+                else status.setText("Не вышло: " + err);
+            });
+        };
+        t.setOnEditorActionListener((v, id, ev) -> { save.run(); return true; });
+        LinearLayout.LayoutParams bl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        bl.leftMargin = dp(12);
+        row.addView(Panel.action(this, "Сохранить", save), bl);
+        LinearLayout.LayoutParams rl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rl.topMargin = dp(16);
+        p.body.addView(row, rl);
+        LinearLayout.LayoutParams sl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        sl.topMargin = dp(10);
+        p.body.addView(status, sl);
     }
 
     private View showCard(Shows.Show s, LinearLayout strip, boolean followed) {
@@ -2116,15 +2279,15 @@ public class HomeActivity extends Activity {
             st.setBackground(Ui.round(0xFFFFC94D, dp(100), 0, 0));
             pic.addView(st, new FrameLayout.LayoutParams(dp(24), dp(24), Gravity.TOP | Gravity.END) {{ setMargins(0, dp(6), dp(6), 0); }});
         }
-        card.addView(pic, new LinearLayout.LayoutParams(dp(116), dp(172)));
-        Shows.poster(iv, s.image, dp(116));
+        card.addView(pic, new LinearLayout.LayoutParams(dp(100), dp(148)));
+        Shows.poster(iv, s.image, dp(100));
 
         TextView name = Ui.text(this, 14, 500, 0xFFFFFFFF);
         name.setShadowLayer(0, 0, 0, 0);
         name.setText(s.title);
         name.setMaxLines(2);
         name.setEllipsize(TextUtils.TruncateAt.END);
-        LinearLayout.LayoutParams nl = new LinearLayout.LayoutParams(dp(116), ViewGroup.LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams nl = new LinearLayout.LayoutParams(dp(100), ViewGroup.LayoutParams.WRAP_CONTENT);
         nl.topMargin = dp(8);
         card.addView(name, nl);
 
@@ -2136,15 +2299,17 @@ public class HomeActivity extends Activity {
         if (followed) {
             Shows.Ep n = Shows.next(this, s.id);
             if (n != null) { line = n.num + " серия — " + Shows.when(n.air); sub.setTextColor(0xFFFFC94D); }
+        } else if (s.movie && !s.digital.isEmpty()) {
+            line = Shows.digitalText(s).replace("в цифре с ", "цифра ");
         } else if (!s.genres.isEmpty()) line += (line.isEmpty() ? "" : " · ") + s.genres.split(",")[0];
         sub.setText(line);
-        LinearLayout.LayoutParams sl = new LinearLayout.LayoutParams(dp(116), ViewGroup.LayoutParams.WRAP_CONTENT);
+        LinearLayout.LayoutParams sl = new LinearLayout.LayoutParams(dp(100), ViewGroup.LayoutParams.WRAP_CONTENT);
         sl.topMargin = dp(2);
         card.addView(sub, sl);
 
         card.setOnClickListener(v -> openShow(s));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        if (strip.getChildCount() > 0) lp.leftMargin = dp(14);
+        if (strip.getChildCount() > 0) lp.leftMargin = dp(12);
         strip.addView(card, lp);
         return card;
     }
@@ -2180,7 +2345,7 @@ public class HomeActivity extends Activity {
         if (!s.genres.isEmpty()) meta.append(meta.length() > 0 ? "  ·  " : "").append(s.genres);
         String rt = s.ratingText();
         if (!rt.isEmpty()) meta.append(meta.length() > 0 ? "  ·  " : "").append(rt);
-        String st = statusRu(s.status);
+        String st = s.movie ? Shows.digitalText(s) : statusRu(s.status);
         if (!st.isEmpty()) meta.append(meta.length() > 0 ? "  ·  " : "").append(st);
         col.addView(infoLine(meta.toString()));
 
@@ -2233,6 +2398,9 @@ public class HomeActivity extends Activity {
             if (first == null) first = n;
         }
         TextView[] follow = new TextView[1];
+        if (s.movie) { // за фильмами следить нечего
+            if (first == null) first = addAction(acts, "Назад", this::openWatch);
+        } else {
         follow[0] = (TextView) addAction(acts, fol ? "★ Не следить" : "☆ Следить за сериями", () -> {
             boolean on = !Shows.isFollowed(this, s.id);
             follow[0].setText(on ? "★ Не следить" : "☆ Следить за сериями");
@@ -2247,6 +2415,7 @@ public class HomeActivity extends Activity {
             });
         });
         if (first == null) first = follow[0];
+        }
         LinearLayout.LayoutParams al = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         al.topMargin = dp(18);
         col.addView(acts, al);
