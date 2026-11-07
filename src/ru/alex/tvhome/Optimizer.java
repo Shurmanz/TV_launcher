@@ -1,5 +1,7 @@
 package ru.alex.tvhome;
 
+import android.content.Intent;
+
 import android.content.Context;
 
 import java.io.File;
@@ -460,16 +462,40 @@ final class Optimizer {
      * соединения (проверено на TCL), поэтому pm install выполняется синхронно — Slauncher при этом
      * перезапускается системой, а BootReceiver по MY_PACKAGE_REPLACED открывает главный экран.
      */
+    private static void showStockHome(Context c) {
+        try {
+            Intent h = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME);
+            String pkg = null;
+            for (android.content.pm.ResolveInfo r : c.getPackageManager().queryIntentActivities(h, 0)) {
+                String p = r.activityInfo.packageName;
+                if (p.equals(c.getPackageName()) || p.equals("com.android.tv.settings") || p.equals("com.android.settings")) continue;
+                pkg = p;
+                if (p.equals("com.google.android.apps.tv.launcherx")) break;
+            }
+            if (pkg == null) return;
+            HomeKeyService.holdStockUntil = android.os.SystemClock.elapsedRealtime() + 90_000L;
+            c.startActivity(h.setPackage(pkg).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            Thread.sleep(1500); // дать экрану открыться, тогда при выгрузке Slauncher система останется на нём
+        } catch (Exception e) {
+            Net.log("stock home before update", e);
+        }
+    }
+
     static void silentInstall(Context c, File apk) throws Exception {
         String tmp = "/data/local/tmp/slauncher_update.apk";
         String r = Adb.sh(c, "cp " + apk.getPath() + " " + tmp + " && echo OK");
         if (!r.contains("OK")) throw new Exception("нет доступа к файлу обновления");
         c.getSharedPreferences("update", Context.MODE_PRIVATE).edit().putBoolean("relaunch", true).commit();
+        // На время установки система выгружает Slauncher и показывает то, что было открыто до него (Зону, YouTube…).
+        // Чтобы не запускалось чужое приложение, сначала открываем штатный экран Google TV и не перебиваем его 90 с.
+        showStockHome(c);
         String out;
         try { out = Adb.sh(c, "pm install -r " + tmp + " 2>&1; rm -f " + tmp); }
         catch (java.io.IOException e) { return; } // соединение оборвалось — установка уже идёт
         if (!out.contains("Success")) {
             c.getSharedPreferences("update", Context.MODE_PRIVATE).edit().remove("relaunch").commit();
+            HomeKeyService.holdStockUntil = 0;
+            try { c.startActivity(new Intent(c, HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); } catch (Exception ignored) { }
             throw new Exception(out.trim());
         }
     }

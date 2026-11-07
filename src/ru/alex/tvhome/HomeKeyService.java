@@ -24,6 +24,8 @@ public class HomeKeyService extends AccessibilityService {
     private static final long VOICE_GRACE_MS = 90_000L;
 
     private long lastLaunch;
+    /** До этого момента (elapsedRealtime) штатный главный экран не перебиваем: на нём идёт обновление Slauncher. */
+    static volatile long holdStockUntil;
     private long lastVoice;
 
     @Override
@@ -46,6 +48,7 @@ public class HomeKeyService extends AccessibilityService {
             return;
         }
         if (cls.contains("LauncherDeepLink")) { lastVoice = now; return; } // переход из Ассистента
+        if (now < holdStockUntil) return; // обновляемся — пусть пару секунд побудет экран Google TV
         if (!homes.contains(cls) && !(pkg.equals(STOCK) && cls.contains("HomeActivity"))) return;
         if (lastVoice != 0 && now - lastVoice < VOICE_GRACE_MS) return; // показываются результаты поиска
         // второе «Домой» вскоре после первого — вернуться в прошлое приложение
