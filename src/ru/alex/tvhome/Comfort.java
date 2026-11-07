@@ -125,6 +125,42 @@ final class Comfort {
     static boolean bgSpace(Context c) { return "space".equals(bg(c)); }
     static void setBgSky(Context c, boolean on) { setBg(c, on ? "sky" : "photo"); }
 
+    // ---------- оставаться на связи при выключенном экране ----------
+
+    /** Xiaomi (MediaTek) в выключенном состоянии засыпает вместе с Wi‑Fi — HA и Алиса до него не достают. По умолчанию на Xiaomi включено. */
+    static boolean stayOnline(Context c) {
+        boolean xiaomi = android.os.Build.MANUFACTURER.toLowerCase(java.util.Locale.ROOT).contains("xiaomi");
+        return p(c).getBoolean("stay_online", xiaomi);
+    }
+    static void setStayOnline(Context c, boolean on) { p(c).edit().putBoolean("stay_online", on).apply(); }
+
+    private static android.os.PowerManager.WakeLock cpuLock;
+    private static android.net.wifi.WifiManager.WifiLock wifiLock;
+
+    /** Держать процессор и Wi‑Fi бодрыми (экран при этом гаснет как обычно). Вызывать при старте службы и при смене настройки. */
+    static synchronized void applyStayOnline(Context ctx) {
+        Context c = ctx.getApplicationContext();
+        boolean on = stayOnline(c);
+        try {
+            if (on && cpuLock == null) {
+                android.os.PowerManager pm = (android.os.PowerManager) c.getSystemService(Context.POWER_SERVICE);
+                cpuLock = pm.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "slauncher:online");
+                cpuLock.setReferenceCounted(false);
+                cpuLock.acquire();
+                android.net.wifi.WifiManager wm = (android.net.wifi.WifiManager) c.getSystemService(Context.WIFI_SERVICE);
+                wifiLock = wm.createWifiLock(android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF, "slauncher:online");
+                wifiLock.setReferenceCounted(false);
+                wifiLock.acquire();
+                android.util.Log.i(Net.TAG, "на связи при выключенном экране: включено");
+            } else if (!on && cpuLock != null) {
+                cpuLock.release();
+                cpuLock = null;
+                if (wifiLock != null) { wifiLock.release(); wifiLock = null; }
+                android.util.Log.i(Net.TAG, "на связи при выключенном экране: выключено");
+            }
+        } catch (Exception e) { Net.log("stay online", e); }
+    }
+
     // ---------- старт с приложения и прошлое приложение ----------
 
     static String startPkg(Context c) { return p(c).getString("start_pkg", ""); }

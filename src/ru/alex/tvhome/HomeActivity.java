@@ -1272,6 +1272,17 @@ public class HomeActivity extends Activity {
                 : "space".equals(bgMode) ? "Космос: снимки James Webb, Hubble и ESO в 4K, в случайном порядке."
                 : "Фото природы под время суток, сезон и погоду.", bgr);
 
+        LinearLayout onl = new LinearLayout(this);
+        boolean online = Comfort.stayOnline(this);
+        addAction(onl, online ? "Выключить" : "Включить", () -> {
+            Comfort.setStayOnline(this, !online);
+            Comfort.applyStayOnline(this);
+            openComfort();
+        });
+        section(p, "Оставаться на связи при выключенном экране", online
+                ? "Включено: экран гаснет как обычно, но телевизор не засыпает полностью — Home Assistant и Алиса до него достают. В ожидании берёт чуть больше электричества."
+                : "Выключено: в выключенном состоянии телевизор может уснуть вместе с Wi‑Fi и пропасть из Home Assistant.", onl);
+
         LinearLayout tr = new LinearLayout(this);
         addAction(tr, "Сохранить", () -> bg(p, "сохраняю…", () -> Transfer.save(this), n -> {
             Toast.makeText(this, "Сохранено: " + n + (Adb.known(this) ? " (Slauncher/settings)" : ""), Toast.LENGTH_LONG).show();

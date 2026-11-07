@@ -89,6 +89,7 @@ public class HomeKeyService extends AccessibilityService {
     @Override
     protected void onServiceConnected() {
         super.onServiceConnected();
+        Comfort.applyStayOnline(this); // на Xiaomi — не засыпать вместе с Wi‑Fi
         PeerSync.start(this); // общий «Слежу» между телевизорами по Wi‑Fi
         HaClient.ensure(this); // служба живёт всегда — держит связь с HA и карточки событий поверх фильма
         // MediaBadge.start(this); // плашка формата видео — в релизе выключена (по просьбе), код оставлен на потом
