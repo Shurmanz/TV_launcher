@@ -185,6 +185,7 @@ public class HomeActivity extends Activity {
     public void onBackPressed() {
         if (moving != null) { endMove(); return; }
         if (panel != null && panel == detailPanel) { detailPanel = null; openWatch(); return; } // из карточки — назад к подборке
+        if (panel != null && panel == tokenHelp) { tokenHelp = null; openWatch(); return; }      // из инструкции — назад к фильмам
         if (panel != null) closePanel();
         // на домашнем экране «Назад» ничего не делает
     }
@@ -802,6 +803,19 @@ public class HomeActivity extends Activity {
         section(p, "Город для погоды", Loc.name(this) + (!Loc.auto(this) ? " — выбран вручную"
                 : Loc.vpnSuspected(this) ? " — интернет идёт через VPN, город мог определиться неточно: лучше выбрать вручную"
                 : " — определён автоматически"), city);
+
+        LinearLayout kp = new LinearLayout(this);
+        addAction(kp, "Как получить токен", this::openTokenHelp);
+        if (!Shows.token(this).isEmpty()) addAction(kp, "Ввести другой", () -> {
+            Shows.setToken(this, "", e -> { });
+            watchMode = "films";
+            watchFocus = 0;
+            watchTab = "films";
+            openWatch();
+        });
+        section(p, "Фильмы в «Что посмотреть»", Shows.token(this).isEmpty()
+                ? "Токен Кинопоиска не введён — без него вкладка «Фильмы» пустая."
+                : "Токен Кинопоиска введён, фильмы загружаются.", kp);
 
         LinearLayout perm = new LinearLayout(this);
         addAction(perm, "Удобство", this::openComfort);
@@ -2213,8 +2227,12 @@ public class HomeActivity extends Activity {
             if (films.isEmpty()) {
                 if (err.isEmpty()) note(p, "Загружаю фильмы…", false);
                 Shows.refreshFilms(this, () -> { if (panel == p && (!Shows.films(this).isEmpty() || !Shows.filmsError(this).isEmpty())) openWatch(); });
-                View t = Panel.action(this, "Сменить токен", () -> { Shows.setToken(this, "", e -> { }); openWatch(); });
-                p.body.addView(t, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+                LinearLayout tr = new LinearLayout(this);
+                addAction(tr, "Сменить токен", () -> { Shows.setToken(this, "", e -> { }); openWatch(); });
+                addAction(tr, "Как получить токен", this::openTokenHelp);
+                LinearLayout.LayoutParams trl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                trl.topMargin = dp(12);
+                p.body.addView(tr, trl);
             }
         } else { // поиск
             for (Shows.Show s : Shows.followed(this)) followedIds.add(s.id);
@@ -2254,11 +2272,65 @@ public class HomeActivity extends Activity {
         p.body.addView(t, l);
     }
 
+    private Panel tokenHelp;
+
+    /** Инструкция по шагам: токен в Телеграме → приложение Google TV на телефоне → вставить токен. */
+    private void openTokenHelp() {
+        Panel p = new Panel(this, "Как получить токен для фильмов", "Три шага, минут пять. «Назад» на пульте — вернуться к фильмам.").tall();
+        LinearLayout cols = new LinearLayout(this);
+        cols.setOrientation(LinearLayout.HORIZONTAL);
+        String[][] steps = {
+                {"1. Токен в Телеграме",
+                        "• Откройте Телеграм на телефоне.\n"
+                        + "• В поиске наберите  @poiskkinodev_bot  и откройте бота (poiskkino.dev, бывший kinopoisk.dev).\n"
+                        + "• Нажмите «Запустить» (Start) и следуйте подсказкам бота — он выдаст бесплатный токен.\n"
+                        + "• Токен — длинная строка из латинских букв и цифр. Нажмите на неё и скопируйте."},
+                {"2. Google TV на телефоне",
+                        "• Android: Google Play → «Google TV» (от Google LLC). iPhone: App Store → «Google TV».\n"
+                        + "• Телефон — в той же Wi‑Fi сети, что и телевизор.\n"
+                        + "• Откройте приложение → внизу кнопка «Пульт» (или карточка «Подключено») → выберите этот телевизор.\n"
+                        + "• На экране телевизора появится код — введите его в телефоне. Это нужно только в первый раз."},
+                {"3. Вставить токен",
+                        "• На телевизоре: «Что посмотреть» → «Фильмы» → поле «Токен», нажмите ОК.\n"
+                        + "• В приложении Google TV на пульте нажмите значок клавиатуры.\n"
+                        + "• Долгое нажатие в поле ввода на телефоне → «Вставить» → отправить (Enter).\n"
+                        + "• Нажмите «Сохранить» — Slauncher проверит токен и загрузит фильмы."},
+        };
+        for (String[] st : steps) {
+            LinearLayout box = new LinearLayout(this);
+            box.setOrientation(LinearLayout.VERTICAL);
+            box.setPadding(dp(18), dp(16), dp(18), dp(16));
+            box.setBackground(Ui.round(0x14FFFFFF, dp(18), dp(1), 0x24FFFFFF));
+            TextView h = Ui.text(this, 17, 600, 0xFFFFFFFF);
+            h.setShadowLayer(0, 0, 0, 0);
+            h.setText(st[0]);
+            box.addView(h);
+            TextView b = Ui.text(this, 14, 400, 0xD9FFFFFF);
+            b.setShadowLayer(0, 0, 0, 0);
+            b.setText(st[1]);
+            b.setLineSpacing(0, 1.25f);
+            LinearLayout.LayoutParams bl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            bl.topMargin = dp(10);
+            box.addView(b, bl);
+            LinearLayout.LayoutParams cl = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f);
+            if (cols.getChildCount() > 0) cl.leftMargin = dp(14);
+            cols.addView(box, cl);
+        }
+        p.body.addView(cols);
+        LinearLayout acts = new LinearLayout(this);
+        View back = addAction(acts, "Понятно, к фильмам", () -> { tokenHelp = null; watchMode = "films"; openWatch(); });
+        LinearLayout.LayoutParams al = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        al.topMargin = dp(16);
+        p.body.addView(acts, al);
+        tokenHelp = p;
+        showPanel(p, back);
+    }
+
     /** Фильмам нужен токен poiskkino.dev (бывш. kinopoisk.dev): берётся у телеграм-бота, вводится здесь. */
     private void tokenForm(Panel p) {
-        TextView how = infoLine("Фильмы в цифре берутся с Кинопоиска через сервис poiskkino.dev — нужен бесплатный токен.\n"
-                + "1. В Телеграме откройте бота @poiskkinodev_bot и получите токен.\n"
-                + "2. Вставьте его в поле ниже — проще всего через приложение Google TV на телефоне (клавиатура → «Вставить»).");
+        TextView how = infoLine("Фильмы берутся с Кинопоиска через сервис poiskkino.dev — нужен бесплатный токен (ключ доступа). "
+                + "Он берётся в Телеграме за минуту, а вставить его удобнее всего с телефона.\n"
+                + "Токен вводится один раз: другие телевизоры со Slauncher в этой сети заберут его сами.");
         how.setTextSize(15);
         how.setLineSpacing(0, 1.2f);
         LinearLayout.LayoutParams hl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -2286,6 +2358,9 @@ public class HomeActivity extends Activity {
         LinearLayout.LayoutParams bl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         bl.leftMargin = dp(12);
         row.addView(Panel.action(this, "Сохранить", save), bl);
+        LinearLayout.LayoutParams il = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        il.leftMargin = dp(12);
+        row.addView(Panel.action(this, "Как получить токен — по шагам", this::openTokenHelp), il);
         LinearLayout.LayoutParams rl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         rl.topMargin = dp(16);
         p.body.addView(row, rl);
