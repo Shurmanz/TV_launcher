@@ -158,7 +158,32 @@ final class PeerSync {
             }
         }
         found.remove(me);
+        if (found.isEmpty()) found.addAll(scan(c, me)); // mDNS в сети не прошёл (бывает на роутерах) — простукиваем подсеть
         return found;
+    }
+
+    /** Найти соседей перебором подсети /24: открыт ли порт 8098. ~3 с, только когда никого не знаем. */
+    private static Set<String> scan(Context c, String me) {
+        Set<String> out = java.util.Collections.synchronizedSet(new HashSet<>());
+        int dot = me == null ? -1 : me.lastIndexOf('.');
+        if (dot < 0) return out;
+        String base = me.substring(0, dot + 1);
+        java.util.concurrent.ExecutorService ex = java.util.concurrent.Executors.newFixedThreadPool(48);
+        for (int i = 1; i < 255; i++) {
+            String ip = base + i;
+            if (ip.equals(me)) continue;
+            ex.execute(() -> {
+                try (Socket s = new Socket()) {
+                    s.connect(new InetSocketAddress(ip, PORT), 400);
+                    out.add(ip);
+                } catch (Exception ignored) { }
+            });
+        }
+        ex.shutdown();
+        try { ex.awaitTermination(8, java.util.concurrent.TimeUnit.SECONDS); } catch (Exception ignored) { }
+        for (String ip : out) rememberPeer(c, ip);
+        Log.i(Net.TAG, "peer: поиск по подсети — " + out);
+        return new HashSet<>(out);
     }
 
     /** Сверить «Слежу» с соседями: берём более новый, свой новый отправляем. */
