@@ -390,7 +390,7 @@ final class Wallpapers {
 
     /** Список 4K-снимков космоса: кеш на сутки, иначе свежий подбор. Порядок случайный, недавние — в конце. Вызывать в фоне. */
     List<String> spaceUrls() {
-        String key = "space_v4"; // v4 — в названии обязательно что-то про космос
+        String key = "space_v5"; // v5 — в названии обязательно что-то про космос; старый кеш чистится
         long ts = prefs.getLong(key + ".ts", 0);
         String saved = prefs.getString(key, null);
         if (saved != null && System.currentTimeMillis() - ts < SPACE_TTL) return order(visible(Arrays.asList(saved.split("\n"))));
