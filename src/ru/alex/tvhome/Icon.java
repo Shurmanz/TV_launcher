@@ -11,7 +11,7 @@ import android.graphics.drawable.Drawable;
 
 /** Простые значки, нарисованные кодом (без ресурсов): вход, Wi‑Fi, Ethernet, шестерёнка, плюс. */
 final class Icon extends Drawable {
-    static final int INPUT = 0, WIFI = 1, ETHERNET = 2, GEAR = 3, PLUS = 4, NO_NET = 5, AV = 6, TV = 7, ROCKET = 8;
+    static final int INPUT = 0, WIFI = 1, ETHERNET = 2, GEAR = 3, PLUS = 4, NO_NET = 5, AV = 6, TV = 7, ROCKET = 8, FILM = 9;
 
     private final int kind;
     private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -156,6 +156,17 @@ final class Icon extends Drawable {
                 hole.setXfermode(new android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.CLEAR));
                 c.drawCircle(cx, cy - s * 0.13f, s * 0.065f, hole);
                 c.restoreToCount(layer);
+                break;
+            }
+            case FILM: { // хлопушка: корпус и приподнятая полосатая планка
+                p.setStyle(Paint.Style.FILL);
+                RectF body = new RectF(cx - s * 0.4f, cy - s * 0.08f, cx + s * 0.4f, cy + s * 0.38f);
+                c.drawRoundRect(body, s * 0.06f, s * 0.06f, p);
+                c.save();
+                c.rotate(-16, cx - s * 0.4f, cy - s * 0.12f);
+                RectF bar = new RectF(cx - s * 0.4f, cy - s * 0.32f, cx + s * 0.4f, cy - s * 0.14f);
+                c.drawRoundRect(bar, s * 0.04f, s * 0.04f, p);
+                c.restore();
                 break;
             }
             case PLUS: {

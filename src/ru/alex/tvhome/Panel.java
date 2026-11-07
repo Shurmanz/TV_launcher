@@ -57,6 +57,17 @@ final class Panel extends FrameLayout {
         addView(card, cl);
     }
 
+    /** Высокая панель: почти на весь экран по высоте (для ленты крупных постеров). */
+    Panel tall() {
+        Context c = getContext();
+        View card = getChildAt(0);
+        LayoutParams cl = (LayoutParams) card.getLayoutParams();
+        cl.setMargins(Ui.dp(c, 56), Ui.dp(c, 14), Ui.dp(c, 56), Ui.dp(c, 14));
+        card.setPadding(Ui.dp(c, 32), Ui.dp(c, 18), Ui.dp(c, 32), Ui.dp(c, 16));
+        card.setLayoutParams(cl);
+        return this;
+    }
+
     /** Горизонтальная лента карточек (прокрутка стрелками). */
     LinearLayout strip() {
         Context c = getContext();
@@ -65,8 +76,8 @@ final class Panel extends FrameLayout {
         hs.setClipChildren(false);
         hs.setClipToPadding(false);
         hs.setPadding(Ui.dp(c, 6), Ui.dp(c, 10), Ui.dp(c, 6), Ui.dp(c, 10));
-        hs.setFadingEdgeLength(Ui.dp(c, 40));
-        hs.setHorizontalFadingEdgeEnabled(true);
+        // без затухания по краям: на полупрозрачной панели оно рисовалось тёмной полосой с резкой границей поверх карточки
+        hs.setHorizontalFadingEdgeEnabled(false);
         LinearLayout row = new LinearLayout(c);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setClipChildren(false);
