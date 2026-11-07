@@ -342,7 +342,7 @@ final class Wallpapers {
      * только JPEG. filew/filemime — фильтры поиска Commons, отсекают мелочь ещё на сервере.
      */
     private static final String[] SPACE_QUERIES = {
-            "nebula \"James Webb\"", "galaxy \"James Webb\"", "\"James Webb\" NIRCam", "\"James Webb\" MIRI",
+            "nebula \"James Webb\"", "galaxy \"James Webb\"", "\"deep field\"", "\"Pillars of Creation\"",
             "nebula Hubble", "galaxy Hubble", "\"star cluster\" Hubble", "\"planetary nebula\"",
             "nebula ESO", "galaxy ESO", "\"Milky Way\" ESO", "\"Milky Way\" night sky",
             "nebula incategory:\"Featured pictures on Wikimedia Commons\"",
@@ -356,7 +356,9 @@ final class Wallpapers {
     private static final String[] SPACE_JUNK = {"diagram", "chart", "graph", "spectrum", "logo", "infographic", "map ",
             "annotated", "labeled", "labelled", "comparison", "compass", "scale bar", "mirror", "telescope at",
             "launch", "rocket", "team", "scientist", "engineer", "astronaut", "crew", "poster", "banner", "text",
-            "plot", "data", "observatory building", "dome", "antenna", "cleanroom", "assembly", "model of"};
+            "plot", "data", "observatory building", "dome", "antenna", "cleanroom", "clean room", "assembly", "model of",
+            "instrument", "vibration", "testing", " test", "hardware", "spacecraft", "sunshield", "cryo", "miri", "nircam",
+            "nirspec", "segment", "unboxing", "shipping", "hangar", "facility", "workers", "technician"};
 
     static boolean spaceTitleOk(String title) {
         String t = " " + title.toLowerCase(Locale.ROOT).replace('_', ' ') + " ";
@@ -366,7 +368,7 @@ final class Wallpapers {
 
     /** Список 4K-снимков космоса: кеш на сутки, иначе свежий подбор. Порядок случайный, недавние — в конце. Вызывать в фоне. */
     List<String> spaceUrls() {
-        String key = "space_v1";
+        String key = "space_v2"; // v2 — без снимков аппаратуры телескопа
         long ts = prefs.getLong(key + ".ts", 0);
         String saved = prefs.getString(key, null);
         if (saved != null && System.currentTimeMillis() - ts < SPACE_TTL) return order(visible(Arrays.asList(saved.split("\n"))));
