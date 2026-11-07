@@ -763,17 +763,32 @@ public class HomeActivity extends Activity {
         p.body.addView(row, rl);
     }
 
-    private void openAppSettings() {
+    private void openAppSettings() { openAppSettings(false); }
+
+    /** checked=false — при открытии настроек сразу проверяем обновление и, если ответ изменил картину, перерисовываем. */
+    private void openAppSettings(boolean checked) {
         Panel p = new Panel(this, "Настройки Slauncher", null);
         p.count.setText("версия " + Updater.myName(this));
 
         LinearLayout upd = new LinearLayout(this);
-        boolean avail = Updater.available(this);
-        View first = addAction(upd, avail ? "Обновить до " + Updater.remoteName(this) : "Проверить обновление", () -> runUpdate(p));
+        boolean avail = Updater.available(this), failed = Updater.checkFailed(this);
+        String btn = !checked ? "Проверяю обновление…"
+                : avail ? "Есть обновление " + Updater.remoteName(this) + " — установить"
+                : failed ? "Проверить ещё раз"
+                : "✓ Последняя версия";
+        View first = addAction(upd, btn, () -> runUpdate(p));
         addAction(upd, "Что нового", () -> { closePanel(); root.postDelayed(this::openWhatsNew, 200); });
-        section(p, "Обновление", avail ? "Доступна новая версия " + Updater.remoteName(this) + "."
-                : Updater.checkFailed(this) ? "Не удалось проверить: нет связи с сервером обновлений (GitHub и запасной адрес)."
-                : "Установлена последняя проверенная версия.", upd);
+        section(p, "Обновление", !checked ? "Смотрю, нет ли новой версии…"
+                : avail ? "Вышла новая версия " + Updater.remoteName(this) + " — нажмите, чтобы установить."
+                : failed ? "Не удалось проверить: нет связи с сервером обновлений (GitHub и запасной адрес)."
+                : "Установлена последняя версия " + Updater.myName(this) + ".", upd);
+        if (!checked) {
+            Updater.check(this, true, (a, name) -> {
+                settingsIcon.setDot(a);
+                updateTip();
+                if (panel == p) openAppSettings(true);
+            });
+        }
 
         LinearLayout ha = new LinearLayout(this);
         addAction(ha, "Настроить с телефона", this::openHaSetup);
@@ -783,7 +798,7 @@ public class HomeActivity extends Activity {
                 HaConfig.setEnabled(this, !on);
                 HaClient.restart(this);
                 if (on) { HaReceiver.prefs(this).edit().remove("data").apply(); haCorner.refresh(); }
-                openAppSettings();
+                openAppSettings(true);
             });
         }
         String haState = HaConfig.url(this).isEmpty() ? "Не настроен. Климат по комнатам и карточки событий — по желанию."
@@ -798,7 +813,7 @@ public class HomeActivity extends Activity {
             Toast.makeText(this, "Определяю город…", Toast.LENGTH_SHORT).show();
             new Thread(() -> {
                 Loc.refreshAuto(this, true);
-                runOnUiThread(() -> { wall.refreshWeather(); wall.next(); openAppSettings(); });
+                runOnUiThread(() -> { wall.refreshWeather(); wall.next(); openAppSettings(true); });
             }).start();
         });
         section(p, "Город для погоды", Loc.name(this) + (!Loc.auto(this) ? " — выбран вручную"
@@ -832,7 +847,7 @@ public class HomeActivity extends Activity {
                 Toast.makeText(this, Updater.checkFailed(this)
                         ? "Не удалось проверить обновление: нет связи с сервером. Проверьте интернет и попробуйте позже"
                         : "Установлена последняя версия " + Updater.myName(this), Toast.LENGTH_LONG).show();
-                if (p != null && panel == p) openAppSettings();
+                if (p != null && panel == p) openAppSettings(true);
                 return;
             }
             if (Adb.known(this)) { // тихо, без экрана подтверждения
