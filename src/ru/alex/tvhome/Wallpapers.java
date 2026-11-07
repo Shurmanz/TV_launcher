@@ -349,7 +349,7 @@ final class Wallpapers {
             "galaxy incategory:\"Featured pictures on Wikimedia Commons\"",
             "\"Milky Way\" incategory:\"Featured pictures on Wikimedia Commons\"",
             "aurora \"International Space Station\"", "\"artist's impression\" exoplanet",
-            "supernova remnant", "\"spiral galaxy\"", "\"Orion Nebula\"", "\"Carina Nebula\"",
+            "supernova Hubble", "\"spiral galaxy\"", "\"Orion Nebula\"", "\"Carina Nebula\"",
     };
 
     /** Что в космической выдаче — не картинка для фона: схемы, графики, сам телескоп, люди. */
@@ -367,15 +367,30 @@ final class Wallpapers {
     /** То же самое — минусами прямо в поиске Commons, чтобы такое не занимало место в выдаче. */
     private static final String SPACE_MINUS = "-NHQ -panel -briefing -conference -ceremony -event -lecture -audience";
 
+    /**
+     * В названии должно быть что-то про космос — иначе в выдачу лезут однофамильцы: «SNR» (рок-группа,
+     * парламент, заповедник), Samsung Galaxy, кафе «Nebula». Плюс русские, испанские, французские слова и
+     * метки архивов Hubble/ESO (heic…, potw…, eso…).
+     */
+    private static final java.util.regex.Pattern SPACE_WORDS = java.util.regex.Pattern.compile(
+            "nebula|n[eé]buleuse|nebulosa|туманност|galax|галакт|\\bngc ?\\d|\\bic ?\\d|\\bm ?\\d{1,3}\\b|messier|"
+            + "\\bsh2|cluster|скоплен|supernova|сверхнов|milky ?way|млечн|v[ií]a l[aá]ctea|voie lact|"
+            + "\\bstars?\\b|starry|звезд|звёзд|estrell|[ée]toile|cosmic|космос|deep field|webb|jwst|hubble|"
+            + "\\beso\\d|\\bheic|potw|\\bopo\\d|carina|orion|орион|andromeda|андромед|pillars|aurora|сияни|"
+            + "jupiter|юпитер|saturn|сатурн|planet|планет|comet|комет|quasar|pulsar|night sky|ночное небо|"
+            + "astrophot|astronom|астроном|eclipse|затмени|lagoon|trifid|horsehead|eagle|crab|whirlpool|sombrero|"
+            + "pleiades|плеяд|magellan|магеллан");
+
     static boolean spaceTitleOk(String title) {
         String t = " " + title.toLowerCase(Locale.ROOT).replace('_', ' ') + " ";
         for (String w : SPACE_JUNK) if (t.contains(w)) return false;
+        if (!SPACE_WORDS.matcher(t).find()) return false;
         return titleOk(title);
     }
 
     /** Список 4K-снимков космоса: кеш на сутки, иначе свежий подбор. Порядок случайный, недавние — в конце. Вызывать в фоне. */
     List<String> spaceUrls() {
-        String key = "space_v3"; // v3 — без аппаратуры телескопа и фото с мероприятий NASA
+        String key = "space_v4"; // v4 — в названии обязательно что-то про космос
         long ts = prefs.getLong(key + ".ts", 0);
         String saved = prefs.getString(key, null);
         if (saved != null && System.currentTimeMillis() - ts < SPACE_TTL) return order(visible(Arrays.asList(saved.split("\n"))));
