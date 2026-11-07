@@ -1323,8 +1323,10 @@ public class HomeActivity extends Activity {
             openComfort();
         });
         section(p, "Оставаться на связи при выключенном экране", online
-                ? "Включено: экран гаснет как обычно, но телевизор не засыпает полностью — Home Assistant и Алиса до него достают. В ожидании берёт чуть больше электричества."
-                : "Выключено: в выключенном состоянии телевизор может уснуть вместе с Wi‑Fi и пропасть из Home Assistant.", onl);
+                ? "Включено: экран гаснет как обычно, но телевизор не засыпает полностью — "
+                        + (Comfort.haHome(this) ? "Home Assistant и Алиса до него достают." : "пульт в телефоне и голосовые ассистенты могут его включить.")
+                        + " В ожидании берёт чуть больше электричества."
+                : "Выключено: в выключенном состоянии телевизор может уснуть вместе с Wi‑Fi и пропасть из сети.", onl);
 
         LinearLayout tr = new LinearLayout(this);
         addAction(tr, "Сохранить", () -> bg(p, "сохраняю…", () -> Transfer.save(this), n -> {
@@ -1527,7 +1529,7 @@ public class HomeActivity extends Activity {
         if (panel != null) return;
         whatsNewAt = android.os.SystemClock.elapsedRealtime();
         Panel p = new Panel(this, "Что нового в Slauncher " + Updater.myName(this), null);
-        TextView t = infoLine(Comfort.WHATS_NEW);
+        TextView t = infoLine(Comfort.whatsNew(this));
         t.setLineSpacing(dp(4), 1f);
         p.body.addView(t);
         LinearLayout row = new LinearLayout(this);
