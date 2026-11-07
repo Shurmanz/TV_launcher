@@ -2107,7 +2107,7 @@ public class HomeActivity extends Activity {
         LinearLayout top = new LinearLayout(this);
         top.setGravity(Gravity.CENTER_VERTICAL);
         TextView tSeries = watchTab(top, "Сериалы", "series");
-        TextView tFilms = watchTab(top, "Фильмы в цифре", "films");
+        TextView tFilms = watchTab(top, "Фильмы", "films");
         android.widget.EditText q = field("🔍  Найти сериал или фильм", 330);
         q.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
         if ("search".equals(watchMode)) q.setText(searchQ);
@@ -2176,7 +2176,7 @@ public class HomeActivity extends Activity {
             if (searchRes == null) note(p, "Ищу «" + searchQ + "»…", false);
             else if (searchRes.isEmpty()) note(p, "По запросу «" + searchQ + "» ничего не нашлось", false);
             else {
-                note(p, "Найдено по запросу «" + searchQ + "»" + (Shows.token(this).isEmpty() ? "  ·  фильмы ищутся после ввода токена во вкладке «Фильмы в цифре»" : ""), false);
+                note(p, "Найдено по запросу «" + searchQ + "»" + (Shows.token(this).isEmpty() ? "  ·  фильмы ищутся после ввода токена во вкладке «Фильмы»" : ""), false);
                 list.addAll(searchRes);
                 p.count.setText(plural(searchRes.size(), "результат", "результата", "результатов"));
             }
