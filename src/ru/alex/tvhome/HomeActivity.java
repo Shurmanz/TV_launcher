@@ -163,6 +163,7 @@ public class HomeActivity extends Activity {
         // отладка из adb: am start -n ru.alex.tvhome/.HomeActivity --es open watch|show:<id>
         String open = intent.getStringExtra("open");
         if ("watch".equals(open)) openWatchFresh();
+        else if ("tokenhelp".equals(open)) openTokenHelp();
         else if (open != null && open.startsWith("show:")) {
             int id = Integer.parseInt(open.substring(5));
             for (Shows.Show sh : concat(Shows.picks(this), Shows.films(this))) if (sh.id == id) { openShow(sh); break; }
