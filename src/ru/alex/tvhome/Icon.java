@@ -176,10 +176,14 @@ final class Icon extends Drawable {
                 break;
             }
         }
-        if (dot) {
+        if (dot) { // красная точка «есть обновление» в правом верхнем углу, с тёмной обводкой — видна на любом фоне
+            float r = s * 0.2f, ring = s * 0.06f;
+            float x = b.right - r - ring, y = b.top + r + ring;
             Paint dp = new Paint(Paint.ANTI_ALIAS_FLAG);
-            dp.setColor(0xFFFF9F0A);
-            c.drawCircle(b.right - s * 0.08f, b.top + s * 0.08f, s * 0.16f, dp);
+            dp.setColor(0xFF1C1C1E);
+            c.drawCircle(x, y, r + ring, dp);
+            dp.setColor(0xFFFF3B30);
+            c.drawCircle(x, y, r, dp);
         }
     }
 
