@@ -829,6 +829,12 @@ public class HomeActivity extends Activity {
             watchTab = "films";
             openWatch();
         });
+        int hidN = Shows.hidden(this).size();
+        if (hidN > 0) addAction(kp, "Вернуть скрытые (" + hidN + ")", () -> {
+            Shows.setHidden(this, 0, false);
+            Toast.makeText(this, "Скрытые сериалы и фильмы снова в подборке", Toast.LENGTH_SHORT).show();
+            openAppSettings(true);
+        });
         section(p, "Фильмы в «Что посмотреть»", Shows.token(this).isEmpty()
                 ? "Токен Кинопоиска не введён — без него вкладка «Фильмы» пустая."
                 : "Токен Кинопоиска введён, фильмы загружаются.", kp);
@@ -2210,7 +2216,11 @@ public class HomeActivity extends Activity {
         if ("series".equals(watchMode)) {
             List<Shows.Show> allPicks = Shows.picks(this), picks = new ArrayList<>();
             Map<Integer, Shows.Show> byId = new HashMap<>();
-            for (Shows.Show s : allPicks) { byId.put(s.id, s); if (s.russian() == ru) picks.add(s); }
+            java.util.Set<Integer> hid = Shows.hidden(this);
+            for (Shows.Show s : allPicks) {
+                byId.put(s.id, s);
+                if (s.russian() == ru && !hid.contains(s.id) && picks.size() < Shows.SHOW_PER_GROUP) picks.add(s); // скрытые выпали — встают следующие
+            }
             int folN = 0;
             for (Shows.Show f : Shows.followed(this)) {
                 followedIds.add(f.id);
@@ -2235,7 +2245,8 @@ public class HomeActivity extends Activity {
                 return;
             }
             List<Shows.Show> films = Shows.films(this);
-            for (Shows.Show s : films) if (s.russian() == ru) list.add(s);
+            java.util.Set<Integer> hid = Shows.hidden(this);
+            for (Shows.Show s : films) if (s.russian() == ru && !hid.contains(s.id) && list.size() < Shows.SHOW_PER_GROUP) list.add(s);
             p.count.setText(list.isEmpty() ? "" : plural(list.size(), "фильм", "фильма", "фильмов"));
             String err = Shows.filmsError(this);
             if (films.isEmpty() && !err.isEmpty()) note(p, "Не получилось загрузить фильмы: " + err, true);
@@ -2263,12 +2274,19 @@ public class HomeActivity extends Activity {
 
         if (!list.isEmpty()) {
             LinearLayout strip = p.strip();
+            watchIndexOf.clear();
+            List<View> cards = new ArrayList<>();
             for (Shows.Show s : list) {
                 View c = showCard(s, strip, followedIds.contains(s.id));
+                watchIndexOf.put(s.id, cards.size());
+                cards.add(c);
                 if (fr[0] == null) fr[0] = c;
                 if (s.id == watchFocus) fr[1] = c;
             }
+            // убрали карточку — фокус на ту, что встала на её место
+            if (fr[1] == null && watchIndex >= 0 && !cards.isEmpty()) fr[1] = cards.get(Math.min(watchIndex, cards.size() - 1));
         }
+        watchIndex = -1;
         View focus = fr[1] != null ? fr[1] : tabFocus != null ? tabFocus : "search".equals(watchMode) && searchRes != null && searchRes.isEmpty() ? q
                 : fr[0] != null ? fr[0] : tSeries;
         watchTab = null;
@@ -2464,6 +2482,9 @@ public class HomeActivity extends Activity {
         }
     }
 
+    private final Map<Integer, Integer> watchIndexOf = new HashMap<>();
+    private int watchIndex = -1;
+
     private void openShow(Shows.Show s) {
         watchFocus = s.id;
         Panel p = new Panel(this, s.title, s.orig.equals(s.title) ? "" : s.orig);
@@ -2529,7 +2550,7 @@ public class HomeActivity extends Activity {
             });
         }
         if (Shows.installed(this, Shows.NUM)) {
-            View n = addAction(acts, "Открыть в NUM", () -> {
+            View n = addAction(acts, "В NUM", () -> {
                 closePanel();
                 Shows.openNum(this, s, () -> Toast.makeText(this, "В NUM этот сериал по ссылке не нашёлся — открыл NUM, поищите по названию",
                         Toast.LENGTH_LONG).show());
@@ -2537,12 +2558,27 @@ public class HomeActivity extends Activity {
             if (first == null) first = n;
         }
         TextView[] follow = new TextView[1];
+        Runnable hide = () -> {
+            if (Shows.isFollowed(this, s.id)) {
+                Toast.makeText(this, "Вы следите за этим сериалом — сначала снимите «Следить»", Toast.LENGTH_LONG).show();
+                return;
+            }
+            Shows.setHidden(this, s.id, true);
+            Integer idx = watchIndexOf.get(s.id);
+            watchIndex = idx == null ? 0 : idx;
+            watchFocus = 0;
+            detailPanel = null;
+            if ("search".equals(watchMode)) watchMode = s.movie ? "films" : "series";
+            Toast.makeText(this, "«" + s.title + "» больше не покажу. Вернуть — в Настройках Slauncher → «Фильмы»", Toast.LENGTH_LONG).show();
+            openWatch();
+        };
         if (s.movie) { // за фильмами следить нечего
-            if (first == null) first = addAction(acts, "Назад", this::openWatch);
+            View h = addAction(acts, "✕ Не показывать", hide);
+            if (first == null) first = h;
         } else {
-        follow[0] = (TextView) addAction(acts, fol ? "★ Не следить" : "☆ Следить за сериями", () -> {
+        follow[0] = (TextView) addAction(acts, fol ? "★ Не следить" : "☆ Следить", () -> {
             boolean on = !Shows.isFollowed(this, s.id);
-            follow[0].setText(on ? "★ Не следить" : "☆ Следить за сериями");
+            follow[0].setText(on ? "★ Не следить" : "☆ Следить");
             if (on) {
                 epLine.setText("Проверяю даты серий…");
                 epLine.setVisibility(View.VISIBLE);
@@ -2554,6 +2590,7 @@ public class HomeActivity extends Activity {
             });
         });
         if (first == null) first = follow[0];
+        addAction(acts, "✕ Не показывать", hide);
         }
         LinearLayout.LayoutParams al = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         al.topMargin = dp(18);
