@@ -11,7 +11,6 @@ import org.json.JSONObject;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
-import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -217,25 +216,27 @@ final class PeerSync {
         }
     }
 
-    private static String get(String url) throws Exception {
-        HttpURLConnection h = (HttpURLConnection) new URL(url).openConnection();
-        h.setConnectTimeout(2500);
-        h.setReadTimeout(4000);
-        try (java.io.InputStream in = h.getInputStream()) {
-            return new String(readAll(in), StandardCharsets.UTF_8);
-        } finally { h.disconnect(); }
-    }
+    // Простой HTTP/1.0 на сокете, с жёсткими тайм-аутами (HttpURLConnection на Xiaomi подвисал на запросах в локалку)
+    private static String get(String url) throws Exception { return http(url, "GET", null); }
 
-    private static void post(String url, String body) throws Exception {
-        HttpURLConnection h = (HttpURLConnection) new URL(url).openConnection();
-        h.setConnectTimeout(2500);
-        h.setReadTimeout(4000);
-        h.setDoOutput(true);
-        h.setRequestProperty("Content-Type", "application/json");
-        byte[] b = body.getBytes(StandardCharsets.UTF_8);
-        h.setFixedLengthStreamingMode(b.length);
-        try (OutputStream o = h.getOutputStream()) { o.write(b); }
-        try { h.getResponseCode(); } finally { h.disconnect(); }
+    private static void post(String url, String body) throws Exception { http(url, "POST", body); }
+
+    private static String http(String url, String method, String body) throws Exception {
+        URL u = new URL(url);
+        byte[] b = body == null ? new byte[0] : body.getBytes(StandardCharsets.UTF_8);
+        try (Socket s = new Socket()) {
+            s.connect(new InetSocketAddress(u.getHost(), u.getPort()), 2500);
+            s.setSoTimeout(4000);
+            OutputStream o = s.getOutputStream();
+            o.write((method + " " + u.getPath() + " HTTP/1.0\r\nHost: " + u.getHost() + "\r\nContent-Type: application/json\r\nContent-Length: "
+                    + b.length + "\r\n\r\n").getBytes(StandardCharsets.US_ASCII));
+            o.write(b);
+            o.flush();
+            String resp = new String(readAll(s.getInputStream()), StandardCharsets.UTF_8);
+            int i = resp.indexOf("\r\n\r\n");
+            if (!resp.startsWith("HTTP/1.1 200") || i < 0) throw new Exception("ответ: " + resp.split("\r\n")[0]);
+            return resp.substring(i + 4);
+        }
     }
 
     private static byte[] readAll(java.io.InputStream in) throws Exception {
