@@ -152,6 +152,15 @@ final class Comfort {
                 wifiLock.setReferenceCounted(false);
                 wifiLock.acquire();
                 android.util.Log.i(Net.TAG, "на связи при выключенном экране: включено");
+                // Doze (глубокий сон Android) через час-другой простоя перестаёт уважать wakelock — телевизор засыпает целиком.
+                // Приложения из списка исключений Doze он не трогает: добавляемся туда через встроенный ADB (сохраняется навсегда).
+                android.os.PowerManager pm2 = (android.os.PowerManager) c.getSystemService(Context.POWER_SERVICE);
+                if (!pm2.isIgnoringBatteryOptimizations(c.getPackageName()) && Adb.known(c)) {
+                    new Thread(() -> {
+                        try { android.util.Log.i(Net.TAG, "doze: " + Adb.sh(c, "cmd deviceidle whitelist +" + c.getPackageName()).trim()); }
+                        catch (Exception e) { Net.log("doze whitelist", e); }
+                    }).start();
+                }
             } else if (!on && cpuLock != null) {
                 cpuLock.release();
                 cpuLock = null;
