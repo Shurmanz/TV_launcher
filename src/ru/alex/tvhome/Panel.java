@@ -65,8 +65,8 @@ final class Panel extends FrameLayout {
         hs.setClipChildren(false);
         hs.setClipToPadding(false);
         hs.setPadding(Ui.dp(c, 6), Ui.dp(c, 10), Ui.dp(c, 6), Ui.dp(c, 10));
-        hs.setFadingEdgeLength(Ui.dp(c, 40));
-        hs.setHorizontalFadingEdgeEnabled(true);
+        // без затухания по краям: на полупрозрачной панели оно рисовалось тёмной полосой с резкой границей поверх карточки
+        hs.setHorizontalFadingEdgeEnabled(false);
         LinearLayout row = new LinearLayout(c);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setClipChildren(false);
