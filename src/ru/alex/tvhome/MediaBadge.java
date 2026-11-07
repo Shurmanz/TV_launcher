@@ -42,7 +42,11 @@ final class MediaBadge {
         inst = new MediaBadge(c.getApplicationContext());
     }
 
-    static boolean enabled(Context c) { return prefs(c).getBoolean("badge", true); }
+    /** На TCL своя плашка формата есть в прошивке — по умолчанию нашу не показываем, чтобы не дублировать. */
+    static boolean enabled(Context c) {
+        boolean ownBadge = android.os.Build.MANUFACTURER.toLowerCase(Locale.ROOT).contains("tcl");
+        return prefs(c).getBoolean("badge", !ownBadge);
+    }
     static void setEnabled(Context c, boolean on) { prefs(c).edit().putBoolean("badge", on).apply(); }
     private static SharedPreferences prefs(Context c) { return c.getSharedPreferences("comfort", Context.MODE_PRIVATE); }
 

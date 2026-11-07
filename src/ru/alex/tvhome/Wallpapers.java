@@ -28,15 +28,24 @@ import java.util.Random;
  * офлайн показывается кеш. Неудачное фото можно скрыть навсегда.
  */
 final class Wallpapers {
-    private static final int CACHE_MAX = 80;
+    private static final int CACHE_MAX_NATURE = 80;
+    private static final int CACHE_MAX_SPACE = 50; // 4K весят 2–5 МБ — держим меньше
     private static final long LIST_TTL = 6 * 3600 * 1000L;
+    private static final long SPACE_TTL = 24 * 3600 * 1000L; // космос не зависит от погоды — раз в сутки
 
     private final File dir;
     private final SharedPreferences prefs;
     private final Random rnd = new Random();
+    private final boolean space;
+    private final int cacheMax;
 
-    Wallpapers(Context ctx) {
-        dir = new File(ctx.getCacheDir(), "wall");
+    Wallpapers(Context ctx) { this(ctx, false); }
+
+    /** space=true — фон «Космос»: свой кеш, 4K-превью, свой список. */
+    Wallpapers(Context ctx, boolean space) {
+        this.space = space;
+        cacheMax = space ? CACHE_MAX_SPACE : CACHE_MAX_NATURE;
+        dir = new File(ctx.getCacheDir(), space ? "wall_space" : "wall");
         dir.mkdirs();
         prefs = ctx.getSharedPreferences("walls", Context.MODE_PRIVATE);
         if (prefs.getInt("cacheVer", 1) < 2) { // фото, подобранные по старым правилам (лето, люди), — убрать
@@ -264,11 +273,13 @@ final class Wallpapers {
         lastQuery = System.currentTimeMillis();
     }
 
-    private static JSONObject commonsQuery(String search, int offset) throws Exception {
+    private static JSONObject commonsQuery(String search, int offset) throws Exception { return commonsQuery(search, offset, 1920); }
+
+    private static JSONObject commonsQuery(String search, int offset, int width) throws Exception {
         String url = "https://commons.wikimedia.org/w/api.php?action=query&format=json&formatversion=2"
                 + "&generator=search&gsrnamespace=6&gsrlimit=50&gsroffset=" + offset
                 + "&gsrsearch=" + Uri.encode(search)
-                + "&prop=imageinfo&iiprop=url%7Csize%7Cmime%7Cextmetadata&iiurlwidth=1920"
+                + "&prop=imageinfo&iiprop=url%7Csize%7Cmime%7Cextmetadata&iiurlwidth=" + width
                 + "&iiextmetadatafilter=GPSLatitude%7CGPSLongitude%7CObjectName";
         return new JSONObject(Net.getText(url));
     }
@@ -322,6 +333,95 @@ final class Wallpapers {
         Uri p = Uri.parse(u);
         String host = p.getHost();
         return "https".equals(p.getScheme()) && host != null && host.endsWith(".wikimedia.org") ? u : "";
+    }
+
+    // ---------- фон «Космос» ----------
+
+    /**
+     * Запросы для космоса: снимки JWST, Hubble, ESO и избранное Commons. Все — от 3840 px по ширине (4K),
+     * только JPEG. filew/filemime — фильтры поиска Commons, отсекают мелочь ещё на сервере.
+     */
+    private static final String[] SPACE_QUERIES = {
+            "nebula \"James Webb\"", "galaxy \"James Webb\"", "\"James Webb\" NIRCam", "\"James Webb\" MIRI",
+            "nebula Hubble", "galaxy Hubble", "\"star cluster\" Hubble", "\"planetary nebula\"",
+            "nebula ESO", "galaxy ESO", "\"Milky Way\" ESO", "\"Milky Way\" night sky",
+            "nebula incategory:\"Featured pictures on Wikimedia Commons\"",
+            "galaxy incategory:\"Featured pictures on Wikimedia Commons\"",
+            "\"Milky Way\" incategory:\"Featured pictures on Wikimedia Commons\"",
+            "aurora \"International Space Station\"", "\"artist's impression\" exoplanet",
+            "supernova remnant", "\"spiral galaxy\"", "\"Orion Nebula\"", "\"Carina Nebula\"",
+    };
+
+    /** Что в космической выдаче — не картинка для фона: схемы, графики, сам телескоп, люди. */
+    private static final String[] SPACE_JUNK = {"diagram", "chart", "graph", "spectrum", "logo", "infographic", "map ",
+            "annotated", "labeled", "labelled", "comparison", "compass", "scale bar", "mirror", "telescope at",
+            "launch", "rocket", "team", "scientist", "engineer", "astronaut", "crew", "poster", "banner", "text",
+            "plot", "data", "observatory building", "dome", "antenna", "cleanroom", "assembly", "model of"};
+
+    static boolean spaceTitleOk(String title) {
+        String t = " " + title.toLowerCase(Locale.ROOT).replace('_', ' ') + " ";
+        for (String w : SPACE_JUNK) if (t.contains(w)) return false;
+        return titleOk(title);
+    }
+
+    /** Список 4K-снимков космоса: кеш на сутки, иначе свежий подбор. Порядок случайный, недавние — в конце. Вызывать в фоне. */
+    List<String> spaceUrls() {
+        String key = "space_v1";
+        long ts = prefs.getLong(key + ".ts", 0);
+        String saved = prefs.getString(key, null);
+        if (saved != null && System.currentTimeMillis() - ts < SPACE_TTL) return order(visible(Arrays.asList(saved.split("\n"))));
+        LinkedHashSet<String> set = new LinkedHashSet<>();
+        boolean limited = false;
+        List<String> qs = new ArrayList<>(Arrays.asList(SPACE_QUERIES));
+        Collections.shuffle(qs, rnd);
+        for (String q : qs) {
+            try { set.addAll(searchSpace(q)); }
+            catch (Exception e) { Net.log("space '" + q + "'", e); if (is429(e)) { limited = true; break; } }
+            if (set.size() >= LIST_MAX) break;
+        }
+        List<String> out = new ArrayList<>(set);
+        android.util.Log.i(Net.TAG, "space: collected " + out.size() + " photos" + (limited ? " (429)" : ""));
+        if (out.isEmpty() && saved != null) return order(visible(Arrays.asList(saved.split("\n"))));
+        Collections.shuffle(out, rnd);
+        if (out.size() > LIST_MAX) out = new ArrayList<>(out.subList(0, LIST_MAX));
+        if (!out.isEmpty()) {
+            long ts2 = out.size() >= 50 ? System.currentTimeMillis() : System.currentTimeMillis() - SPACE_TTL + 30 * 60_000L;
+            prefs.edit().putString(key, join(out)).putLong(key + ".ts", ts2).apply();
+        }
+        return order(visible(out));
+    }
+
+    /** Один запрос космоса: первая страница и ещё одна, если есть. Только превью 3840 px — оригиналы бывают по 100 МБ. */
+    List<String> searchSpace(String query) throws Exception {
+        String search = query + " filew:>3839 filemime:image/jpeg";
+        List<String> res = new ArrayList<>();
+        int offset = 0;
+        for (int pageNo = 0; pageNo < 2; pageNo++) {
+            throttle();
+            JSONObject o = commonsQuery(search, offset, 3840);
+            JSONObject q = o.optJSONObject("query");
+            JSONArray pages = q == null ? null : q.optJSONArray("pages");
+            int seen = 0, junk = 0, shape = 0;
+            if (pages != null) for (int i = 0; i < pages.length(); i++) {
+                JSONObject page = pages.getJSONObject(i);
+                JSONArray ii = page.optJSONArray("imageinfo");
+                if (ii == null || ii.length() == 0) continue;
+                seen++;
+                String title = page.optString("title", "");
+                if (!spaceTitleOk(title)) { junk++; continue; }
+                JSONObject info = ii.getJSONObject(0);
+                int w = info.optInt("width"), h = info.optInt("height");
+                if (w < 3840 || h <= 0 || (double) w / h < 1.0 || (double) w / h > 2.6) { shape++; continue; } // широкие и квадратные
+                String thumb = wm(info.optString("thumburl", ""));
+                if (thumb.isEmpty() || info.optInt("thumbwidth", 0) < 3800) { shape++; continue; }
+                res.add(thumb + meta(null, title));
+            }
+            android.util.Log.i(Net.TAG, "space [" + query + "] p" + pageNo + ": " + seen + " files, junk " + junk + ", shape " + shape);
+            JSONObject cont = o.optJSONObject("continue");
+            if (cont == null || !cont.has("gsroffset")) break;
+            offset = cont.optInt("gsroffset", 50);
+        }
+        return res;
     }
 
     // ---------- подпись «где снято» ----------
@@ -458,9 +558,9 @@ final class Wallpapers {
 
     private void trim() {
         File[] fs = dir.listFiles((d, n) -> n.endsWith(".jpg"));
-        if (fs == null || fs.length <= CACHE_MAX) return;
+        if (fs == null || fs.length <= cacheMax) return;
         Arrays.sort(fs, Comparator.comparingLong(File::lastModified));
-        for (int i = 0; i < fs.length - CACHE_MAX; i++) fs[i].delete();
+        for (int i = 0; i < fs.length - cacheMax; i++) fs[i].delete();
     }
 
     private static String join(List<String> l) {

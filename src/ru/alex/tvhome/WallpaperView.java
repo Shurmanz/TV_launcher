@@ -34,7 +34,9 @@ final class WallpaperView extends FrameLayout {
     private long interval;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final ExecutorService bg = Executors.newSingleThreadExecutor();
-    private final Wallpapers walls;
+    private final Wallpapers nature, cosmos;
+    private Wallpapers walls; // текущий источник: природа или космос
+    private boolean space; // фон «Космос»
     private ImageView front, back;
     private final List<Listener> listeners = new ArrayList<>();
 
@@ -51,7 +53,12 @@ final class WallpaperView extends FrameLayout {
         super(ctx);
         interval = intervalMs;
         Loc.init(ctx);
-        walls = new Wallpapers(ctx);
+        nature = new Wallpapers(ctx);
+        cosmos = new Wallpapers(ctx, true);
+        walls = nature;
+        android.util.DisplayMetrics dm = new android.util.DisplayMetrics();
+        ((android.view.WindowManager) ctx.getSystemService(Context.WINDOW_SERVICE)).getDefaultDisplay().getRealMetrics(dm);
+        maxW = Math.max(1920, Math.min(3840, Math.max(dm.widthPixels, dm.heightPixels)));
         setBackgroundColor(0xFF0B0F14);
         back = img();
         front = img();
@@ -80,6 +87,18 @@ final class WallpaperView extends FrameLayout {
     boolean isSky() { return skyView != null; }
 
     void setCaptionListener(CaptionListener l) { captionListener = l; }
+
+    boolean isSpace() { return space; }
+
+    /** Фото природы или «Космос» (4K-снимки телескопов, случайно). Смена — сразу новое фото. */
+    void setSpace(boolean on) {
+        if (on == space) return;
+        space = on;
+        walls = on ? cosmos : nature;
+        urls = new ArrayList<>();
+        sceneKey = "";
+        if (running && skyView == null) next();
+    }
 
     private void caption(String text) { if (captionListener != null) captionListener.onCaption(text); }
 
@@ -241,27 +260,29 @@ final class WallpaperView extends FrameLayout {
                 if (skyView != null) { ui.post(this::updateSky); return; } // живой фон: фото не качаем
                 Weather.Phase p = Weather.phase(lastWeather, System.currentTimeMillis());
                 Weather.Sky s = Weather.sky(lastWeather);
-                String key = Wallpapers.sceneKey(p, s);
+                final Wallpapers wl = walls;
+                String key = space ? "space" : Wallpapers.sceneKey(p, s);
                 if (!key.equals(sceneKey) || urls.isEmpty()) {
-                    List<String> fresh = walls.urlsFor(p, s);
+                    List<String> fresh = space ? wl.spaceUrls() : wl.urlsFor(p, s);
                     android.util.Log.i(Net.TAG, "scene " + key + ": " + fresh.size() + " photos");
                     if (!fresh.isEmpty()) { urls = new ArrayList<>(fresh); urlIndex = 0; sceneKey = key; }
                 }
                 for (int i = 0; i < 3 && bm == null && !urls.isEmpty(); i++) {
                     String u = urls.get(urlIndex++ % urls.size());
                     if (u.equals(current) && urls.size() > 1) u = urls.get(urlIndex++ % urls.size());
-                    try { bm = decode(walls.fetch(u)); used = u; } catch (Exception e) { Net.log("image " + u, e); }
+                    try { bm = decode(wl.fetch(u)); used = u; } catch (Exception e) { Net.log("image " + u, e); }
                 }
                 if (used != null) {
-                    walls.markShown(used); // не повторять, пока не покажем другие
-                    cap = walls.caption(used);
+                    wl.markShown(used); // не повторять, пока не покажем другие
+                    cap = wl.caption(used);
+                    if (space && cap != null) cap = "✦ " + cap;
                 }
                 if (bm == null && current == null) {
-                    File f = walls.anyCached();
+                    File f = wl.anyCached();
                     if (f != null) bm = decode(f);
                 }
                 if (!urls.isEmpty()) { // заранее скачать следующую
-                    try { walls.fetch(urls.get(urlIndex % urls.size())); } catch (Exception ignored) { }
+                    try { wl.fetch(urls.get(urlIndex % urls.size())); } catch (Exception ignored) { }
                 }
             } finally {
                 final Bitmap res = bm;
@@ -274,14 +295,16 @@ final class WallpaperView extends FrameLayout {
         });
     }
 
-    private static Bitmap decode(File f) {
+    private final int maxW; // ширина экрана в пикселях (до 3840): 4K-снимки космоса не ужимаем до 1080p
+
+    private Bitmap decode(File f) {
         try {
             BitmapFactory.Options o = new BitmapFactory.Options();
             o.inJustDecodeBounds = true;
             BitmapFactory.decodeFile(f.getPath(), o);
             if (o.outWidth <= 0) { f.delete(); return null; }
             int sample = 1;
-            while (o.outWidth / (sample * 2) >= 1920) sample *= 2;
+            while (o.outWidth / (sample * 2) >= maxW) sample *= 2;
             BitmapFactory.Options o2 = new BitmapFactory.Options();
             o2.inSampleSize = sample;
             o2.inPreferredConfig = Bitmap.Config.RGB_565;

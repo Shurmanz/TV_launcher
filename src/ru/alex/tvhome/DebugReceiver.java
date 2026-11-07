@@ -63,6 +63,10 @@ public class DebugReceiver extends BroadcastReceiver {
                                 + " | connected " + in.connected + " | device " + in.device);
                     }
                 }
+                if (intent.getBooleanExtra("space", false)) { // подобрать список «Космос» и показать, сколько нашлось
+                    java.util.List<String> sp = new Wallpapers(app, true).spaceUrls();
+                    Log.i(Net.TAG, "debug space: " + sp.size() + (sp.isEmpty() ? "" : " first=" + sp.get(0)));
+                }
                 if (intent.getBooleanExtra("badge", false)) { // плашка формата: прочитать сейчас и показать
                     MediaBadge.Info bi = MediaBadge.read(app);
                     Log.i(Net.TAG, "debug badge: perms=" + MediaBadge.permitted(app) + " adb=" + Adb.known(app) + " text=" + bi.text() + " | " + bi.raw);
