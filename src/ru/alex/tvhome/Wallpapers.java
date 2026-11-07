@@ -394,6 +394,10 @@ final class Wallpapers {
         long ts = prefs.getLong(key + ".ts", 0);
         String saved = prefs.getString(key, null);
         if (saved != null && System.currentTimeMillis() - ts < SPACE_TTL) return order(visible(Arrays.asList(saved.split("\n"))));
+        if (saved == null) { // новые правила подбора — старый кеш (там бывали концерты и цветы) выбрасываем
+            File[] old = dir.listFiles();
+            if (old != null) for (File f : old) f.delete();
+        }
         LinkedHashSet<String> set = new LinkedHashSet<>();
         boolean limited = false;
         List<String> qs = new ArrayList<>(Arrays.asList(SPACE_QUERIES));
