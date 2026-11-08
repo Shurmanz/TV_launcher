@@ -84,6 +84,7 @@ public class HomeActivity extends Activity {
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
+        Comfort.catchCrashes(this);
         Fonts.init(this);
         apps = new Apps(this);
         BootReceiver.ensureService(this);
@@ -117,6 +118,8 @@ public class HomeActivity extends Activity {
         Shows.refresh(this, this::updateNewEps);
         root.removeCallbacks(sleepTick);
         sleepTick.run();
+        String crash = Comfort.takeCrash(this);
+        if (crash != null) { root.postDelayed(() -> openCrash(crash), 600); return; }
         if (panel == null && Comfort.shouldShowWhatsNew(this)) root.postDelayed(this::openWhatsNew, 800);
         if (!setupOffered && !getSharedPreferences(SetupActivity.PREF, MODE_PRIVATE).getBoolean("seen", false)
                 && SetupActivity.needed(this)) {
@@ -599,7 +602,7 @@ public class HomeActivity extends Activity {
             v.postDelayed(() -> launch(app), 170);
         });
         card.setOnLongClickListener(v -> {
-            if (moving == null) { if (app == null) openLibrary(null); else openTileMenu(app); }
+            if (moving == null) openLibrary(app); // долгое ОК — сразу библиотека приложений (там же действия с этой плиткой)
             return true;
         });
         return cell;
@@ -1036,8 +1039,9 @@ public class HomeActivity extends Activity {
         }
         addAction(acts, "Закрыть", this::closePanel);
         section(p, "Доступ к системе", off
-                ? "Сетевая отладка выключена. Включите: Настройки → Система → Для разработчиков → «Отладка по сети» "
-                + "(режим разработчика: Об устройстве → 7 раз нажать «Сборка»)."
+                ? "Отладка выключена. Включите: Настройки → " + SetupActivity.devMenu() + " → «Отладка по USB»"
+                + (android.os.Build.VERSION.SDK_INT <= 28 ? " (и «Отладка по сети», если есть)" : " и «Отладка по сети»")
+                + ". Нет меню «Для разработчиков» — " + SetupActivity.devPath() + ", нажмите ОК 7 раз."
                 : "Нажмите «Подключить». На экране появится «Разрешить отладку?» — отметьте «Всегда разрешать» и нажмите OK.",
                 acts);
         showPanel(p, first);
@@ -1838,6 +1842,8 @@ public class HomeActivity extends Activity {
                 closePanel();
                 reloadApps();
             });
+            addAction(actions, "Закрыть", () -> { closePanel(); forceClose(ctx); });
+            addAction(actions, "Очистить кеш", () -> { closePanel(); clearCacheOf(ctx); });
         }
         if (!wall.isSky()) {
             View next = addAction(actions, "Следующее фото", () -> { closePanel(); nextPhoto(); });
@@ -2358,7 +2364,7 @@ public class HomeActivity extends Activity {
             p.count.setText(list.isEmpty() ? "" : plural(list.size(), "фильм", "фильма", "фильмов"));
             String err = Shows.filmsError(this);
             if (films.isEmpty() && !err.isEmpty()) note(p, "Не получилось загрузить фильмы: " + err, true);
-            else note(p, (ru ? "Русские" : "Иностранные") + " фильмы, вышедшие в цифре за 3 месяца, с оценкой от 7  ·  свежие первыми", false);
+            else note(p, (ru ? "Русские" : "Иностранные") + " фильмы, вышедшие в цифре за полгода, с оценкой от 7  ·  свежие первыми", false);
             if (films.isEmpty()) {
                 if (err.isEmpty()) note(p, "Загружаю фильмы…", false);
                 Shows.refreshFilms(this, () -> { if (panel == p && (!Shows.films(this).isEmpty() || !Shows.filmsError(this).isEmpty())) openWatch(); });
@@ -2418,25 +2424,24 @@ public class HomeActivity extends Activity {
 
     /** Инструкция по шагам: токен в Телеграме → приложение Google TV на телефоне → вставить токен. */
     private void openTokenHelp() {
-        Panel p = new Panel(this, "Как получить токен для фильмов", "Три шага, минут пять. «Назад» на пульте — вернуться к фильмам.").tall();
+        Panel p = new Panel(this, "Как получить токен для фильмов", "Три шага, минут пять.").tall();
         LinearLayout cols = new LinearLayout(this);
         cols.setOrientation(LinearLayout.HORIZONTAL);
         String[][] steps = {
                 {"1. Токен в Телеграме",
-                        "• Откройте Телеграм на телефоне.\n"
-                        + "• В поиске наберите  @poiskkinodev_bot  и откройте бота (poiskkino.dev, бывший kinopoisk.dev).\n"
-                        + "• Нажмите «Запустить» (Start), затем в меню бота — «Демо доступ»: бот выдаст бесплатный токен.\n"
-                        + "• Токен — длинная строка из латинских букв и цифр. Нажмите на неё и скопируйте."},
+                        "• Телеграм на телефоне → в поиске  @poiskkinodev_bot  → «Запустить».\n"
+                        + "• В меню бота — «Демо доступ»: бот пришлёт бесплатный токен.\n"
+                        + "• Токен — длинная строка из букв и цифр: нажмите на неё, чтобы скопировать."},
                 {"2. Google TV на телефоне",
-                        "• Android: Google Play → «Google TV» (от Google LLC). iPhone: App Store → «Google TV».\n"
+                        "• Google Play или App Store → «Google TV» (от Google LLC).\n"
                         + "• Телефон — в той же Wi‑Fi сети, что и телевизор.\n"
-                        + "• Откройте приложение → внизу кнопка «Пульт» (или карточка «Подключено») → выберите этот телевизор.\n"
-                        + "• На экране телевизора появится код — введите его в телефоне. Это нужно только в первый раз."},
+                        + "• В приложении внизу «Пульт» → выберите этот телевизор.\n"
+                        + "• Введите код с экрана телевизора — только в первый раз."},
                 {"3. Вставить токен",
-                        "• На телевизоре: «Что посмотреть» → «Фильмы» → поле «Токен», нажмите ОК.\n"
-                        + "• В приложении Google TV на пульте нажмите значок клавиатуры.\n"
-                        + "• Долгое нажатие в поле ввода на телефоне → «Вставить» → отправить (Enter).\n"
-                        + "• Нажмите «Сохранить» — Slauncher проверит токен и загрузит фильмы."},
+                        "• На телевизоре: «Что посмотреть» → «Фильмы» → поле «Токен» → ОК.\n"
+                        + "• В Google TV на телефоне — значок клавиатуры.\n"
+                        + "• Долгое нажатие в поле → «Вставить» → Enter.\n"
+                        + "• «Сохранить» — Slauncher проверит токен и загрузит фильмы."},
         };
         for (String[] st : steps) {
             LinearLayout box = new LinearLayout(this);
@@ -2450,7 +2455,7 @@ public class HomeActivity extends Activity {
             TextView b = Ui.text(this, 14, 400, 0xD9FFFFFF);
             b.setShadowLayer(0, 0, 0, 0);
             b.setText(st[1]);
-            b.setLineSpacing(0, 1.25f);
+            b.setLineSpacing(0, 1.15f);
             LinearLayout.LayoutParams bl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             bl.topMargin = dp(10);
             box.addView(b, bl);
@@ -2460,7 +2465,12 @@ public class HomeActivity extends Activity {
         }
         p.body.addView(cols);
         LinearLayout acts = new LinearLayout(this);
-        View back = addAction(acts, "Понятно, к фильмам", () -> { tokenHelp = null; watchMode = "films"; openWatch(); });
+        View back = addAction(acts, "Понятно", () -> { // туда, откуда пришли: в настройки или к фильмам
+            tokenHelp = null;
+            if (!panelStack.isEmpty()) { backPanel(); return; }
+            watchMode = "films";
+            openWatch();
+        });
         LinearLayout.LayoutParams al = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         al.topMargin = dp(16);
         p.body.addView(acts, al);
@@ -2795,35 +2805,39 @@ public class HomeActivity extends Activity {
     }
 
     /** Долгое ОК на плитке приложения: открыть, закрыть зависшее, очистить кеш, переставить, убрать. */
+    /** Закрыть зависшее приложение: через отладку — полностью, без неё — фоновые процессы. */
+    private void forceClose(Apps.App app) {
+        new Thread(() -> {
+            boolean ok = false;
+            try {
+                if (Adb.known(this)) { Adb.sh(this, "am force-stop " + app.pkg); ok = true; }
+                else {
+                    ((android.app.ActivityManager) getSystemService(ACTIVITY_SERVICE)).killBackgroundProcesses(app.pkg);
+                    ok = true;
+                }
+            } catch (Exception e) { Net.log("force-stop", e); }
+            boolean fok = ok;
+            runOnUiThread(() -> Toast.makeText(this, fok ? "«" + app.label + "» закрыто — в следующий раз откроется заново"
+                    : "Не получилось закрыть «" + app.label + "»", Toast.LENGTH_SHORT).show());
+        }).start();
+    }
+
+    private void clearCacheOf(Apps.App app) {
+        Toast.makeText(this, "Откроется страница приложения — там «Очистить кеш»", Toast.LENGTH_LONG).show();
+        try {
+            startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    android.net.Uri.parse("package:" + app.pkg)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        } catch (Exception e) { Toast.makeText(this, "На этом телевизоре такого экрана нет", Toast.LENGTH_SHORT).show(); }
+    }
+
     private void openTileMenu(Apps.App app) {
         Panel p = new Panel(this, app.label, "Что сделать с приложением");
         LinearLayout row = new LinearLayout(this);
         View first = addAction(row, "Открыть", () -> { closePanel(); launch(app); });
-        addAction(row, "Закрыть", () -> {
-            closePanel();
-            new Thread(() -> {
-                boolean ok = false;
-                try {
-                    if (Adb.known(this)) { Adb.sh(this, "am force-stop " + app.pkg); ok = true; }
-                    else {
-                        ((android.app.ActivityManager) getSystemService(ACTIVITY_SERVICE)).killBackgroundProcesses(app.pkg);
-                        ok = true;
-                    }
-                } catch (Exception e) { Net.log("force-stop", e); }
-                boolean fok = ok;
-                runOnUiThread(() -> Toast.makeText(this, fok ? "«" + app.label + "» закрыто — в следующий раз откроется заново"
-                        : "Не получилось закрыть «" + app.label + "»", Toast.LENGTH_SHORT).show());
-            }).start();
-        });
-        addAction(row, "Очистить кеш", () -> {
-            closePanel();
-            Toast.makeText(this, "Откроется страница приложения — там «Очистить кеш»", Toast.LENGTH_LONG).show();
-            try {
-                startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                        android.net.Uri.parse("package:" + app.pkg)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-            } catch (Exception e) { Toast.makeText(this, "На этом телевизоре такого экрана нет", Toast.LENGTH_SHORT).show(); }
-        });
+        addAction(row, "Закрыть", () -> { closePanel(); forceClose(app); });
+        addAction(row, "Очистить кеш", () -> { closePanel(); clearCacheOf(app); });
         addAction(row, "Переместить", () -> startMove(app.pkg));
+        addAction(row, "Добавить приложения…", () -> openLibrary(app));
         addAction(row, "Убрать с главного", () -> {
             List<String> d = apps.dockPackages();
             d.remove(app.pkg);
@@ -3116,5 +3130,24 @@ public class HomeActivity extends Activity {
                 if (panel == p) openJunk();
             });
         }).start();
+    }
+
+    /** «Slauncher упал в прошлый раз» — текст ошибки, чтобы человек сфоткал и прислал. */
+    private void openCrash(String text) {
+        Panel p = new Panel(this, "Slauncher упал в прошлый раз",
+                "Сфотографируйте этот экран и отправьте тому, кто дал вам Slauncher, — так проще найти и исправить ошибку.").tall();
+        ScrollView sv = new ScrollView(this);
+        TextView t = Ui.text(this, 11, 400, 0xD9FFFFFF);
+        t.setShadowLayer(0, 0, 0, 0);
+        t.setTypeface(android.graphics.Typeface.MONOSPACE);
+        t.setText(text);
+        sv.addView(t);
+        p.body.addView(sv, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(330)));
+        LinearLayout row = new LinearLayout(this);
+        View ok = addAction(row, "Понятно", this::closePanel);
+        LinearLayout.LayoutParams rl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rl.topMargin = dp(12);
+        p.body.addView(row, rl);
+        showPanel(p, ok);
     }
 }

@@ -230,13 +230,17 @@ final class Comfort {
     // ---------- что нового ----------
 
     static final String WHATS_NEW =
-            "• В настройках «Назад» возвращает на предыдущий экран, а не сразу на главный.\n"
+            "• Android 12 и новее (Mi Box S 2-го поколения и др.): мастер настройки и «Включить всё» больше не падают.\n"
+                    + "• Если Slauncher вдруг упадёт, при следующем запуске он покажет текст ошибки — сфотографируйте и отправьте, так её проще исправить.\n"
+                    + "• Мастер настройки: если Slauncher не включается в «Специальных возможностях» (бывает на Mi Box и старых Android TV), "
+                    + "появится пошаговая подсказка и кнопка «Включить через отладку».\n"
+                    + "• В настройках «Назад» возвращает на предыдущий экран, а не сразу на главный.\n"
                     + "• «Удобство» → «Лишние приложения»: всё, чего нет на главном экране, — когда открывали последний раз и сколько весит. "
                     + "Отметьте ненужное и «Убрать»; передумали — «Вернуть всё как было». Важное для работы телевизора там не показывается.\n"
                     + "• Кнопки пульта: своё действие на любую кнопку — Netflix, YouTube, цветные, цифры. Например, Netflix открывает Зону, "
                     + "а долгое нажатие — NUM. Проще всего: зажмите свободную кнопку на 5 секунд — Slauncher сам предложит, что на неё повесить (или «Удобство» → «Кнопки пульта»).\n"
                     + "• Предупреждения о погоде под погодой — только когда есть повод: гололёд, сильный мороз или жара, ветер, сильный снег.\n"
-                    + "• Долгое ОК на плитке приложения: открыть, закрыть зависшее, очистить кеш, переместить, убрать с главного.\n"
+                    + "• Долгое ОК на плитке: библиотека приложений, а сверху — переместить, убрать с главного, закрыть зависшее, очистить кеш.\n"
                     + "• Память телевизора: когда места мало, на главном экране появится напоминание; кеш приложений чистится одной кнопкой "
                     + "(«Удобство» → «Место и кеш»).\n"
                     + "• «Что посмотреть» (значок хлопушки рядом с ракетой): лучшие сериалы за этот и прошлый год (от 7,5) "
@@ -271,6 +275,37 @@ final class Comfort {
     static boolean haHome(Context c) {
         if (HaConfig.enabled(c)) return true;
         return System.currentTimeMillis() - HaReceiver.prefs(c).getLong("seen", 0) < 14 * 86400_000L;
+    }
+
+    // ---------- отчёт о падении: показать при следующем запуске, чтобы человек сфоткал ----------
+
+    private static boolean crashHook;
+
+    static synchronized void catchCrashes(Context ctx) {
+        if (crashHook) return;
+        crashHook = true;
+        Context c = ctx.getApplicationContext();
+        Thread.UncaughtExceptionHandler prev = Thread.getDefaultUncaughtExceptionHandler();
+        Thread.setDefaultUncaughtExceptionHandler((th, e) -> {
+            try {
+                java.io.StringWriter sw = new java.io.StringWriter();
+                e.printStackTrace(new java.io.PrintWriter(sw));
+                String s = sw.toString();
+                if (s.length() > 2500) s = s.substring(0, 2500);
+                String head = "Slauncher " + Updater.myName(c) + " · " + android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL
+                        + " · Android " + android.os.Build.VERSION.RELEASE + "\n";
+                c.getSharedPreferences("crash", Context.MODE_PRIVATE).edit().putString("last", head + s).commit();
+            } catch (Throwable ignored) { }
+            if (prev != null) prev.uncaughtException(th, e);
+        });
+    }
+
+    /** Текст последнего падения (и стереть). */
+    static String takeCrash(Context c) {
+        android.content.SharedPreferences p = c.getSharedPreferences("crash", Context.MODE_PRIVATE);
+        String s = p.getString("last", null);
+        if (s != null) p.edit().remove("last").apply();
+        return s;
     }
 
     /**

@@ -37,15 +37,28 @@ public class SetupActivity extends Activity {
         }
     }
 
+    static final long UNREADABLE = Long.MIN_VALUE;
+
+    /**
+     * Прочитать системную настройку. С Android 12 скрытые ключи (low_power_standby_enabled, adb_allowed_connection_time…)
+     * обычным приложениям не отдаются — бросается исключение. Тогда UNREADABLE, а «сделано ли» помним сами.
+     */
+    static long global(android.content.Context c, String key, long def) {
+        try { return Settings.Global.getLong(c.getContentResolver(), key, def); }
+        catch (Throwable e) { return UNREADABLE; }
+    }
+
     /** Энергосбережение Android выключено и Slauncher в исключениях Doze. */
     static boolean sleepOk(android.content.Context c) {
-        boolean lps = Settings.Global.getInt(c.getContentResolver(), "low_power_standby_enabled", 0) != 0;
+        long v = global(c, "low_power_standby_enabled", 0);
+        boolean lps = v == UNREADABLE ? !c.getSharedPreferences(PREF, MODE_PRIVATE).getBoolean("lps_off", false) : v != 0;
         android.os.PowerManager pm = (android.os.PowerManager) c.getSystemService(POWER_SERVICE);
         return !lps && pm.isIgnoringBatteryOptimizations(c.getPackageName());
     }
 
     static boolean adbKeepOk(android.content.Context c) {
-        return Settings.Global.getLong(c.getContentResolver(), "adb_allowed_connection_time", 604800000L) == 0;
+        long v = global(c, "adb_allowed_connection_time", 604800000L);
+        return v == UNREADABLE ? c.getSharedPreferences(PREF, MODE_PRIVATE).getBoolean("adb_keep", false) : v == 0;
     }
 
     /** Есть ли важные невыполненные пункты (для показа при первом запуске). */
@@ -65,13 +78,18 @@ public class SetupActivity extends Activity {
     }
 
     static boolean dreamOn(android.content.Context c) {
-        String s = Settings.Secure.getString(c.getContentResolver(), "screensaver_components");
-        return s != null && s.contains(c.getPackageName());
+        try {
+            String s = Settings.Secure.getString(c.getContentResolver(), "screensaver_components");
+            return s != null && s.contains(c.getPackageName());
+        } catch (Throwable e) { // Android 12+: скрытые ключи настроек приложениям не читаются
+            return c.getSharedPreferences(PREF, MODE_PRIVATE).getBoolean("dream_set", false);
+        }
     }
 
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
+        Comfort.catchCrashes(this);
         Fonts.init(this);
         FrameLayout root = new FrameLayout(this);
         GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TL_BR, new int[]{0xFF14171C, 0xFF0B0C0F});
@@ -108,24 +126,7 @@ public class SetupActivity extends Activity {
             getSharedPreferences(PREF, MODE_PRIVATE).edit().putBoolean("seen", true).apply();
             finish();
         });
-        TextView autoBtn = Panel.action(this, "Включить всё автоматически", () -> {
-            android.widget.Toast.makeText(this, Adb.known(this) ? "Настраиваю…"
-                    : "Если появится «Разрешить отладку?» — отметьте «Всегда» и нажмите OK", android.widget.Toast.LENGTH_LONG).show();
-            new Thread(() -> {
-                String err = null;
-                try { Adb.sh(this, "echo ok", 90_000); Optimizer.fixAll(this); }
-                catch (Exception e) {
-                    err = "сетевая отладка выключена".equals(e.getMessage())
-                            ? "Сначала включите «Отладка по сети»: Настройки → Система → Для разработчиков"
-                            : "Не получилось: " + e.getMessage();
-                }
-                final String fe = err;
-                runOnUiThread(() -> {
-                    android.widget.Toast.makeText(this, fe == null ? "Готово ✓" : fe, android.widget.Toast.LENGTH_LONG).show();
-                    build();
-                });
-            }).start();
-        });
+        TextView autoBtn = Panel.action(this, "Включить всё автоматически", this::autoFix);
         LinearLayout.LayoutParams al = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         al.rightMargin = Ui.dp(this, 12);
         bottom.addView(autoBtn, al);
@@ -149,7 +150,10 @@ public class SetupActivity extends Activity {
         return new Step[]{
                 new Step("Кнопка «Домой» открывает Slauncher",
                         "Специальные возможности → «Slauncher: кнопка «Домой»» → Включить.",
-                        homeServiceOn(this), true, () -> open(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)),
+                        homeServiceOn(this), true, () -> {
+                            getSharedPreferences(PREF, MODE_PRIVATE).edit().putBoolean("acc_tried", true).apply();
+                            open(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
+                        },
                         "adb shell settings put secure enabled_accessibility_services " + getPackageName() + "/.HomeKeyService"),
                 new Step("Уведомления поверх фильма",
                         "Показ поверх других приложений → Slauncher → Разрешить." + (Comfort.haHome(this)
@@ -189,15 +193,109 @@ public class SetupActivity extends Activity {
         };
     }
 
+    /** Режим разработчика: где он на этой версии Android TV (старые — «Настройки устройства», Google TV — «Система»). */
+    static String devPath() {
+        return Build.VERSION.SDK_INT <= 28
+                ? "Настройки → «Настройки устройства» → «Об устройстве» → пункт «Сборка»"
+                : "Настройки → «Система» → «Об устройстве» → пункт «Сборка ОС Android TV»";
+    }
+
+    static String devMenu() {
+        return Build.VERSION.SDK_INT <= 28 ? "«Настройки устройства» → «Для разработчиков»" : "«Система» → «Для разработчиков»";
+    }
+
+    /** Всё нужное — через встроенную отладку ADB (в т.ч. служба «Домой», если в Спецвозможностях её не включить). */
+    private void autoFix() {
+        android.widget.Toast.makeText(this, Adb.known(this) ? "Настраиваю…"
+                : "Если появится «Разрешить отладку?» — отметьте «Всегда» и нажмите OK", android.widget.Toast.LENGTH_LONG).show();
+        new Thread(() -> {
+            String err = null;
+            try { Adb.sh(this, "echo ok", 90_000); Optimizer.fixAll(this); }
+            catch (Exception e) {
+                String m = String.valueOf(e.getMessage());
+                err = m.contains("отладка выключена") || m.contains("refused") || m.contains("ECONNREFUSED")
+                        ? "Сначала включите отладку: " + devMenu() + " → «Отладка по USB»" + (Build.VERSION.SDK_INT <= 28 ? "" : " и «Отладка по сети»")
+                        + ". Нет такого меню — " + devPath() + ", нажмите ОК 7 раз."
+                        : "Не получилось: " + m;
+            }
+            final String fe = err;
+            runOnUiThread(() -> {
+                android.widget.Toast.makeText(this, fe == null ? "Готово ✓" : fe, android.widget.Toast.LENGTH_LONG).show();
+                build();
+            });
+        }).start();
+    }
+
+    /** Подсказка под «Кнопкой Домой», если человек уже сходил в Спецвозможности, а служба так и не включилась. */
+    private View accHelp() {
+        LinearLayout r = new LinearLayout(this);
+        r.setOrientation(LinearLayout.HORIZONTAL);
+        r.setGravity(Gravity.CENTER_VERTICAL);
+        r.setPadding(Ui.dp(this, 16), Ui.dp(this, 10), Ui.dp(this, 14), Ui.dp(this, 10));
+        r.setBackground(Ui.round(0x26FF9F0A, Ui.dp(this, 18), Ui.dp(this, 1), 0x66FF9F0A));
+        LinearLayout txt = new LinearLayout(this);
+        txt.setOrientation(LinearLayout.VERTICAL);
+        TextView t = Ui.text(this, 15, 600, 0xFFFFFFFF);
+        t.setShadowLayer(0, 0, 0, 0);
+        t.setText("Не нашли Slauncher в Спецвозможностях или переключатель не работает?");
+        txt.addView(t);
+        TextView d = Ui.text(this, 12, 400, 0xD9FFFFFF);
+        d.setShadowLayer(0, 0, 0, 0);
+        d.setLineSpacing(0, 1.15f);
+        d.setText("Так бывает на приставках Mi Box и старых Android TV. Slauncher включит всё сам:\n"
+                + "1. " + devPath() + " — нажмите ОК 7 раз, пока не появится «Вы стали разработчиком».\n"
+                + "2. " + devMenu() + " → включите «Отладка по USB»" + (Build.VERSION.SDK_INT <= 28 ? " (и «Отладка по сети», если есть)" : " и «Отладка по сети»") + ".\n"
+                + "3. Вернитесь сюда и нажмите «Включить через отладку». Появится «Разрешить отладку?» — отметьте «Всегда» и OK.");
+        LinearLayout.LayoutParams dl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        dl.topMargin = Ui.dp(this, 4);
+        txt.addView(d, dl);
+        r.addView(txt, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView btn = Panel.action(this, "Включить через отладку", this::autoFix);
+        btn.setTag("help");
+        LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        bp.leftMargin = Ui.dp(this, 14);
+        r.addView(btn, bp);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.bottomMargin = Ui.dp(this, 7);
+        r.setLayoutParams(lp);
+        return r;
+    }
+
     private void build() {
+        try { buildList(); }
+        catch (Throwable e) { // не вылетать на родной экран: показать ошибку — её можно сфоткать
+            Net.log("setup", e instanceof Exception ? (Exception) e : new Exception(e));
+            list.removeAllViews();
+            java.io.StringWriter sw = new java.io.StringWriter();
+            e.printStackTrace(new java.io.PrintWriter(sw));
+            String st = sw.toString();
+            TextView t = Ui.text(this, 12, 400, 0xD9FFFFFF);
+            t.setShadowLayer(0, 0, 0, 0);
+            t.setTypeface(android.graphics.Typeface.MONOSPACE);
+            t.setText("Не получилось показать список — сфотографируйте экран и отправьте тому, кто дал вам Slauncher.\n"
+                    + "Slauncher " + Updater.myName(this) + " · " + Build.MANUFACTURER + " " + Build.MODEL + " · Android " + Build.VERSION.RELEASE
+                    + "\n\n" + (st.length() > 2000 ? st.substring(0, 2000) : st));
+            list.addView(t);
+        }
+    }
+
+    private void buildList() {
         list.removeAllViews();
         firstButton = null;
         View firstMissing = null;
         list.addView(bgRow());
+        boolean tried = getSharedPreferences(PREF, MODE_PRIVATE).getBoolean("acc_tried", false);
+        boolean first = true;
         for (Step s : steps()) {
             if (s == null) continue;
             View row = row(s);
             list.addView(row);
+            if (first && !s.ok && tried) { // уже ходили в Спецвозможности, а служба не включилась — предложить отладку
+                View h = accHelp();
+                list.addView(h);
+                firstMissing = h.findViewWithTag("help");
+            }
+            first = false;
             if (!s.ok && firstMissing == null) firstMissing = row.findViewWithTag("btn");
         }
         View f = firstMissing != null ? firstMissing : firstButton;

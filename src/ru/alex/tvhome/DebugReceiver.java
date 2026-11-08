@@ -42,6 +42,7 @@ public class DebugReceiver extends BroadcastReceiver {
                     ed.apply();
                     Log.i(Net.TAG, "debug: wallpaper lists reset");
                 }
+                if (intent.getBooleanExtra("films", false)) Shows.debugFilms(app);
                 if (intent.getBooleanExtra("weather", false)) {
                     try {
                         Weather w = Weather.fetch();
