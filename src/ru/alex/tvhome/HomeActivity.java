@@ -1340,6 +1340,12 @@ public class HomeActivity extends Activity {
                 + "Оперативная: свободно " + Comfort.gb(Comfort.availMem(this)) + " из " + Comfort.gb(Comfort.totalMem(this))
                 + ".  Место: свободно " + Comfort.gb(stg[0]) + ".", sl);
 
+        LinearLayout jk = new LinearLayout(this);
+        addAction(jk, "Открыть…", this::openJunk);
+        int nr = Junk.removed(this).length();
+        section(p, "Лишние приложения", "Всё, чего нет на главном экране: когда открывали и сколько весит. Ненужное — убрать, "
+                + "вернуть можно в любой момент." + (nr > 0 ? "  Убрано: " + nr + "." : ""), jk);
+
         LinearLayout st = new LinearLayout(this);
         addAction(st, "Выбрать…", this::openStartPicker);
         String sp = Comfort.startPkg(this);
@@ -2934,5 +2940,128 @@ public class HomeActivity extends Activity {
         rl.topMargin = dp(18);
         p.body.addView(row, rl);
         showPanel(p, first);
+    }
+
+    // ---------- лишние приложения ----------
+
+    private void openJunk() {
+        Panel p = new Panel(this, "Лишние приложения", "Всё, чего нет на главном экране. ОК — отметить, потом «Убрать». "
+                + "Стороннее удаляется (установщик сохраняется в Download/Slauncher/apps), встроенное выключается. "
+                + "Важное для работы телевизора здесь не показывается.").tall();
+        boolean adb = Adb.known(this);
+        ScrollView sv = new ScrollView(this);
+        sv.setVerticalScrollBarEnabled(false);
+        sv.setClipChildren(false);
+        sv.setClipToPadding(false);
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        list.setPadding(dp(6), dp(4), dp(6), dp(4));
+        sv.addView(list);
+        p.body.addView(sv, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(300)));
+        LinearLayout row = new LinearLayout(this);
+        LinearLayout.LayoutParams rl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rl.topMargin = dp(14);
+        p.body.addView(row, rl);
+        View close = addAction(row, "Закрыть", this::closePanel);
+        showPanel(p, close);
+        p.count.setText("считаю…");
+        List<String> dockPk = apps.dockPackages();
+        List<Apps.App> all = new ArrayList<>(allApps);
+        bg(p, "считаю…", () -> Junk.list(this, all, dockPk), items -> {
+            if (panel != p) return;
+            java.util.Set<String> marked = new java.util.HashSet<>();
+            row.removeAllViews();
+            TextView[] go = new TextView[1];
+            if (adb && !items.isEmpty()) {
+                go[0] = (TextView) addAction(row, "Убрать отмеченные", () -> removeJunk(p, items, marked));
+            }
+            int nr = Junk.removed(this).length();
+            if (adb && nr > 0) addAction(row, "Вернуть всё как было (" + nr + ")", () -> bg(p, "возвращаю…", () -> Junk.restoreAll(this), n -> {
+                Toast.makeText(this, "Вернул: " + n, Toast.LENGTH_LONG).show();
+                reloadApps();
+                openJunk();
+            }));
+            View cl = addAction(row, "Закрыть", this::closePanel);
+            long total = 0;
+            for (Junk.Item it : items) total += it.size;
+            p.count.setText(items.isEmpty() ? "лишнего нет" : items.size() + " шт., " + Comfort.gb(total));
+            if (!adb) note(p, "Чтобы убирать, нужна «Оптимизация» (Настройки Slauncher → Система → Подключить).", true);
+            if (items.isEmpty()) {
+                TextView t = infoLine("Всё, что установлено, — на главном экране. Убирать нечего 👌");
+                list.addView(t);
+                cl.requestFocus();
+                return;
+            }
+            View first = null;
+            for (Junk.Item it : items) {
+                View r = junkRow(it, marked, go);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                lp.bottomMargin = dp(8);
+                list.addView(r, lp);
+                if (first == null) first = r;
+            }
+            first.requestFocus();
+        });
+    }
+
+    private View junkRow(Junk.Item it, java.util.Set<String> marked, TextView[] go) {
+        LinearLayout r = new LinearLayout(this);
+        r.setOrientation(LinearLayout.HORIZONTAL);
+        r.setGravity(Gravity.CENTER_VERTICAL);
+        r.setPadding(dp(14), dp(8), dp(14), dp(8));
+        Panel.cardStyle(r, 14);
+        ImageView ic = new ImageView(this);
+        if (it.icon != null) ic.setImageDrawable(it.icon);
+        r.addView(ic, new LinearLayout.LayoutParams(dp(36), dp(36)));
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        TextView name = Ui.text(this, 17, 500, 0xFFFFFFFF);
+        name.setShadowLayer(0, 0, 0, 0);
+        name.setText(it.label);
+        col.addView(name);
+        TextView info = Ui.text(this, 13, 400, 0xB3FFFFFF);
+        info.setShadowLayer(0, 0, 0, 0);
+        info.setText(Junk.usedText(it.lastUsed) + "  ·  " + Comfort.gb(it.size) + "  ·  " + (it.system ? "встроенное — выключится" : "удалится, установщик сохранится"));
+        col.addView(info);
+        LinearLayout.LayoutParams cl = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        cl.leftMargin = dp(14);
+        r.addView(col, cl);
+        TextView box = Ui.text(this, 22, 500, 0xFFFFFFFF);
+        box.setShadowLayer(0, 0, 0, 0);
+        box.setText("○");
+        r.addView(box);
+        r.setOnClickListener(v -> {
+            boolean on = !marked.remove(it.pkg);
+            if (on) marked.add(it.pkg);
+            box.setText(on ? "✓" : "○");
+            box.setTextColor(on ? 0xFF34C759 : 0xFFFFFFFF);
+            if (go[0] != null) go[0].setText(marked.isEmpty() ? "Убрать отмеченные" : "Убрать отмеченные (" + marked.size() + ")");
+        });
+        return r;
+    }
+
+    private void removeJunk(Panel p, List<Junk.Item> items, java.util.Set<String> marked) {
+        if (marked.isEmpty()) { Toast.makeText(this, "Сначала отметьте приложения — ОК на строке", Toast.LENGTH_SHORT).show(); return; }
+        List<Junk.Item> todo = new ArrayList<>();
+        for (Junk.Item it : items) if (marked.contains(it.pkg)) todo.add(it);
+        p.count.setText("убираю…");
+        new Thread(() -> {
+            int ok = 0;
+            StringBuilder err = new StringBuilder();
+            for (int i = 0; i < todo.size(); i++) {
+                Junk.Item it = todo.get(i);
+                int n = i + 1;
+                runOnUiThread(() -> { if (panel == p) p.count.setText("убираю " + n + " из " + todo.size() + "…"); });
+                String e = Junk.remove(this, it);
+                if (e == null) ok++;
+                else err.append(it.label).append(": ").append(e).append("\n");
+            }
+            int fok = ok;
+            runOnUiThread(() -> {
+                Toast.makeText(this, "Убрано: " + fok + (err.length() > 0 ? ". Не вышло: " + err.toString().trim() : ""), Toast.LENGTH_LONG).show();
+                reloadApps();
+                if (panel == p) openJunk();
+            });
+        }).start();
     }
 }

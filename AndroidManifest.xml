@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="ru.alex.tvhome"
-    android:versionCode="51"
-    android:versionName="1.13.12">
+    android:versionCode="52"
+    android:versionName="1.13.13">
 
     <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="29" />
 
@@ -23,6 +23,7 @@
     <uses-permission android:name="android.permission.KILL_BACKGROUND_PROCESSES" />
     <!-- «Оставаться на связи при выключенном экране» -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" />
 
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
