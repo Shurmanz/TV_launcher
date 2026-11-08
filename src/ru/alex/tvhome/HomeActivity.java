@@ -2869,29 +2869,47 @@ public class HomeActivity extends Activity {
 
     /** Выбор действия: на нажатие или на долгое нажатие. fresh — кнопку только что поймали. */
     private void pickKeyAction(Keys.Bind b, boolean hold, boolean fresh) {
-        Panel p = new Panel(this, b.name + (hold ? " — долгое нажатие" : " — нажатие"), "Что открыть?");
-        LinearLayout strip = p.strip();
+        Panel p = new Panel(this, b.name + (hold ? " — долгое нажатие" : " — нажатие"), "Что открывать этой кнопкой?").tall();
         String cur = hold ? b.hold : b.tap;
         View first = null;
-        if (hold) first = addAction(strip, (cur == null ? "✓ " : "") + "Ничего", () -> { b.hold = null; Keys.save(this, b); openKeyBind(b); });
-        for (String[] a : Keys.ACTIONS) {
-            View v = addAction(strip, (a[0].equals(cur) ? "✓ " : "") + a[1], () -> setKeyAction(b, hold, a[0]));
-            if (first == null || a[0].equals(cur)) first = v;
-        }
+        rowHead(p, "Приложения");
+        LinearLayout apps = p.strip();
         List<Apps.App> list = new ArrayList<>(dock);
         for (Apps.App a : allApps) if (!list.contains(a)) list.add(a);
         for (Apps.App a : list) {
             if (Apps.SETTINGS.equals(a.pkg)) continue;
             String act = "app:" + a.pkg;
-            View v = addAction(strip, (act.equals(cur) ? "✓ " : "") + a.label, () -> setKeyAction(b, hold, act));
-            if (act.equals(cur)) first = v;
+            View v = addAction(apps, (act.equals(cur) ? "✓ " : "") + a.label, () -> setKeyAction(b, hold, act));
+            if (first == null || act.equals(cur)) first = v;
+        }
+        rowHead(p, "Действия Slauncher");
+        LinearLayout acts = p.strip();
+        if (hold) {
+            View v = addAction(acts, (cur == null ? "✓ " : "") + "Ничего", () -> { b.hold = null; Keys.save(this, b); openKeyBind(b); });
+            if (cur == null) first = v;
+        }
+        for (String[] a : Keys.ACTIONS) {
+            View v = addAction(acts, (a[0].equals(cur) ? "✓ " : "") + a[1], () -> setKeyAction(b, hold, a[0]));
+            if (first == null || a[0].equals(cur)) first = v;
         }
         LinearLayout row = new LinearLayout(this);
         addAction(row, "Отмена", () -> { if (fresh) openKeys(); else openKeyBind(b); });
         LinearLayout.LayoutParams rl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         rl.topMargin = dp(10);
         p.body.addView(row, rl);
+        p.count.setText("приложений: " + apps.getChildCount() + " — листайте стрелками");
         showPanel(p, first);
+    }
+
+    /** Подзаголовок над лентой кнопок. */
+    private void rowHead(Panel p, String text) {
+        TextView h = Ui.text(this, 12, 600, 0x80FFFFFF);
+        h.setShadowLayer(0, 0, 0, 0);
+        h.setLetterSpacing(0.12f);
+        h.setText(text.toUpperCase(new Locale("ru")));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(p.body.getChildCount() == 0 ? 0 : 10);
+        p.body.addView(h, lp);
     }
 
     private void setKeyAction(Keys.Bind b, boolean hold, String a) {
