@@ -608,6 +608,10 @@ final class Shows {
             Log.i(Net.TAG, "dbg films: token=" + (token(c).isEmpty() ? "нет" : token(c).length() + " симв.")
                     + " films_at=" + new java.util.Date(prefs(c).getLong("films_at", 0)) + " err=" + prefs(c).getString("films_err", "")
                     + " hidden=" + hidden(c).size() + " cached=" + films(c).size());
+            StringBuilder cs = new StringBuilder();
+            java.util.Set<Integer> hid = hidden(c);
+            for (Show sh : films(c)) if (!sh.russian()) cs.append(hid.contains(sh.id) ? "[скрыт] " : "").append(sh.title).append("; ");
+            Log.i(Net.TAG, "dbg films cached foreign: " + cs);
             SimpleDateFormat f = new SimpleDateFormat("dd.MM.yyyy", Locale.US);
             long now = System.currentTimeMillis();
             String range = f.format(new java.util.Date(now - FILMS_DAYS * 86400_000L)) + "-" + f.format(new java.util.Date(now));
