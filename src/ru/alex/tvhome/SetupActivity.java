@@ -176,13 +176,13 @@ public class SetupActivity extends Activity {
     }
 
     /** Режим разработчика: где он на этой версии Android TV (старые — «Настройки устройства», Google TV — «Система»). */
-    private static String devPath() {
+    static String devPath() {
         return Build.VERSION.SDK_INT <= 28
                 ? "Настройки → «Настройки устройства» → «Об устройстве» → пункт «Сборка»"
                 : "Настройки → «Система» → «Об устройстве» → пункт «Сборка ОС Android TV»";
     }
 
-    private static String devMenu() {
+    static String devMenu() {
         return Build.VERSION.SDK_INT <= 28 ? "«Настройки устройства» → «Для разработчиков»" : "«Система» → «Для разработчиков»";
     }
 
