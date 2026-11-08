@@ -600,6 +600,35 @@ final class Shows {
         Log.i(Net.TAG, "shows: фильмов в цифре " + list.size());
     }
 
+    /** Диагностика фильмов (adb): что отдаёт сервер по тем же запросам — в logcat. */
+    static void debugFilms(Context c) {
+        try {
+            Log.i(Net.TAG, "dbg films: token=" + (token(c).isEmpty() ? "нет" : token(c).length() + " симв.")
+                    + " films_at=" + new java.util.Date(prefs(c).getLong("films_at", 0)) + " err=" + prefs(c).getString("films_err", "")
+                    + " hidden=" + hidden(c).size() + " cached=" + films(c).size());
+            SimpleDateFormat f = new SimpleDateFormat("dd.MM.yyyy", Locale.US);
+            long now = System.currentTimeMillis();
+            String range = f.format(new java.util.Date(now - 90 * 86400_000L)) + "-" + f.format(new java.util.Date(now));
+            String base = "/v1.4/movie?page=1&type=movie&sortField=premiere.digital&sortType=-1&notNullFields=poster.url"
+                    + "&rating.kp=" + (int) FILMS_MIN + "-10&premiere.digital=" + range;
+            for (String q : new String[]{base + "&limit=60&countries.name=" + java.net.URLEncoder.encode("Россия", "UTF-8"), base + "&limit=150"}) {
+                JSONObject r = new JSONObject(kpGet(c, q));
+                JSONArray docs = r.optJSONArray("docs");
+                int n = docs == null ? 0 : docs.length(), ru = 0, ok = 0;
+                StringBuilder names = new StringBuilder();
+                if (docs != null) for (int i = 0; i < docs.length(); i++) {
+                    Show sh = film(docs.optJSONObject(i));
+                    if (sh.best() >= FILMS_MIN) ok++;
+                    if (sh.russian()) ru++;
+                    else if (names.length() < 900) names.append(sh.title).append(" (").append(sh.kp).append(", ").append(sh.digital).append("); ");
+                }
+                Log.i(Net.TAG, "dbg films: " + (q.contains("countries") ? "RU" : "ALL") + " docs=" + n + " total=" + r.optInt("total")
+                        + " limit=" + r.optInt("limit") + " pages=" + r.optInt("pages") + " ok=" + ok + " ru=" + ru);
+                Log.i(Net.TAG, "dbg films foreign: " + names);
+            }
+        } catch (Exception e) { Net.log("dbg films", e); }
+    }
+
     // ---------- поиск: сериалы (MyShows) + фильмы (Кинопоиск, если есть токен) ----------
 
     static void search(Context c, String q, java.util.function.Consumer<List<Show>> done) {
