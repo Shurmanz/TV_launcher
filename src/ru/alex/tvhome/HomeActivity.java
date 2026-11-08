@@ -2418,25 +2418,24 @@ public class HomeActivity extends Activity {
 
     /** Инструкция по шагам: токен в Телеграме → приложение Google TV на телефоне → вставить токен. */
     private void openTokenHelp() {
-        Panel p = new Panel(this, "Как получить токен для фильмов", "Три шага, минут пять. «Назад» на пульте — вернуться к фильмам.").tall();
+        Panel p = new Panel(this, "Как получить токен для фильмов", "Три шага, минут пять.").tall();
         LinearLayout cols = new LinearLayout(this);
         cols.setOrientation(LinearLayout.HORIZONTAL);
         String[][] steps = {
                 {"1. Токен в Телеграме",
-                        "• Откройте Телеграм на телефоне.\n"
-                        + "• В поиске наберите  @poiskkinodev_bot  и откройте бота (poiskkino.dev, бывший kinopoisk.dev).\n"
-                        + "• Нажмите «Запустить» (Start), затем в меню бота — «Демо доступ»: бот выдаст бесплатный токен.\n"
-                        + "• Токен — длинная строка из латинских букв и цифр. Нажмите на неё и скопируйте."},
+                        "• Телеграм на телефоне → в поиске  @poiskkinodev_bot  → «Запустить».\n"
+                        + "• В меню бота — «Демо доступ»: бот пришлёт бесплатный токен.\n"
+                        + "• Токен — длинная строка из букв и цифр: нажмите на неё, чтобы скопировать."},
                 {"2. Google TV на телефоне",
-                        "• Android: Google Play → «Google TV» (от Google LLC). iPhone: App Store → «Google TV».\n"
+                        "• Google Play или App Store → «Google TV» (от Google LLC).\n"
                         + "• Телефон — в той же Wi‑Fi сети, что и телевизор.\n"
-                        + "• Откройте приложение → внизу кнопка «Пульт» (или карточка «Подключено») → выберите этот телевизор.\n"
-                        + "• На экране телевизора появится код — введите его в телефоне. Это нужно только в первый раз."},
+                        + "• В приложении внизу «Пульт» → выберите этот телевизор.\n"
+                        + "• Введите код с экрана телевизора — только в первый раз."},
                 {"3. Вставить токен",
-                        "• На телевизоре: «Что посмотреть» → «Фильмы» → поле «Токен», нажмите ОК.\n"
-                        + "• В приложении Google TV на пульте нажмите значок клавиатуры.\n"
-                        + "• Долгое нажатие в поле ввода на телефоне → «Вставить» → отправить (Enter).\n"
-                        + "• Нажмите «Сохранить» — Slauncher проверит токен и загрузит фильмы."},
+                        "• На телевизоре: «Что посмотреть» → «Фильмы» → поле «Токен» → ОК.\n"
+                        + "• В Google TV на телефоне — значок клавиатуры.\n"
+                        + "• Долгое нажатие в поле → «Вставить» → Enter.\n"
+                        + "• «Сохранить» — Slauncher проверит токен и загрузит фильмы."},
         };
         for (String[] st : steps) {
             LinearLayout box = new LinearLayout(this);
@@ -2450,7 +2449,7 @@ public class HomeActivity extends Activity {
             TextView b = Ui.text(this, 14, 400, 0xD9FFFFFF);
             b.setShadowLayer(0, 0, 0, 0);
             b.setText(st[1]);
-            b.setLineSpacing(0, 1.25f);
+            b.setLineSpacing(0, 1.15f);
             LinearLayout.LayoutParams bl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             bl.topMargin = dp(10);
             box.addView(b, bl);
@@ -2460,7 +2459,12 @@ public class HomeActivity extends Activity {
         }
         p.body.addView(cols);
         LinearLayout acts = new LinearLayout(this);
-        View back = addAction(acts, "Понятно, к фильмам", () -> { tokenHelp = null; watchMode = "films"; openWatch(); });
+        View back = addAction(acts, "Понятно", () -> { // туда, откуда пришли: в настройки или к фильмам
+            tokenHelp = null;
+            if (!panelStack.isEmpty()) { backPanel(); return; }
+            watchMode = "films";
+            openWatch();
+        });
         LinearLayout.LayoutParams al = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         al.topMargin = dp(16);
         p.body.addView(acts, al);
