@@ -198,8 +198,7 @@ public class HomeActivity extends Activity {
     public void onBackPressed() {
         if (moving != null) { endMove(); return; }
         if (panel != null && panel == detailPanel) { detailPanel = null; openWatch(); return; } // из карточки — назад к подборке
-        if (panel != null && panel == tokenHelp) { tokenHelp = null; openWatch(); return; }      // из инструкции — назад к фильмам
-        if (panel != null) closePanel();
+        if (panel != null) backPanel();
         // на домашнем экране «Назад» ничего не делает
     }
 
@@ -1720,10 +1719,35 @@ public class HomeActivity extends Activity {
 
     // ---------- панели ----------
 
+    /** Цепочка открытых панелей: «Назад» возвращает на предыдущую, а не на главный экран. {панель, фокус в ней}. */
+    private final ArrayList<View[]> panelStack = new ArrayList<>();
+
+    private static String panelKey(View v) {
+        return v instanceof Panel ? "T:" + ((Panel) v).title.getText() : "#" + System.identityHashCode(v);
+    }
+
     private void showPanel(FrameLayout p, View first) {
         stopLearn();
-        closePanel();
-        beforePanel = getCurrentFocus();
+        if (panel != null && panel != whatsPanel) {
+            // переход вглубь: текущую панель запоминаем (повторно открытый экран того же названия — обрезает цепочку до него)
+            View cur = panel;
+            String k = panelKey(p);
+            if (!panelKey(cur).equals(k)) panelStack.add(new View[]{cur, getCurrentFocus()});
+            for (int i = 0; i < panelStack.size(); i++) {
+                if (panelKey(panelStack.get(i)[0]).equals(k)) {
+                    while (panelStack.size() > i) panelStack.remove(panelStack.size() - 1);
+                    break;
+                }
+            }
+            HaSetupServer.stop();
+            Transfer.stop();
+            cur.animate().cancel();
+            root.removeView(cur);
+            panel = null;
+        } else {
+            closePanel();
+            beforePanel = getCurrentFocus();
+        }
         panel = p;
         content.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
         p.setAlpha(0f);
@@ -1735,6 +1759,7 @@ public class HomeActivity extends Activity {
     }
 
     private void closePanel() {
+        panelStack.clear();
         stopLearn();
         HaSetupServer.stop();
         Transfer.stop();
@@ -1750,6 +1775,30 @@ public class HomeActivity extends Activity {
         beforePanel = null;
         if (back != null && back.isAttachedToWindow() && back.getParent() != null) back.requestFocus();
         else focusFirstTile();
+    }
+
+    /** «Назад» в панели: на предыдущую панель цепочки, если она есть, иначе — на главный экран. */
+    private void backPanel() {
+        if (panelStack.isEmpty() || panel == whatsPanel) { closePanel(); return; }
+        View[] prev = panelStack.remove(panelStack.size() - 1);
+        stopLearn();
+        HaSetupServer.stop();
+        Transfer.stop();
+        View cur = panel;
+        cur.animate().cancel();
+        root.removeView(cur);
+        panel = (FrameLayout) prev[0];
+        prev[0].animate().cancel();
+        prev[0].setAlpha(1f);
+        if (prev[0].getParent() == null) root.addView(prev[0], match());
+        View f = prev[1];
+        if (f != null && f.getParent() != null && isInside(f, prev[0])) f.requestFocus();
+        else prev[0].requestFocus();
+    }
+
+    private static boolean isInside(View v, View parent) {
+        for (android.view.ViewParent x = v.getParent(); x != null; x = x.getParent()) if (x == parent) return true;
+        return false;
     }
 
     private static String plural(int n, String one, String few, String many) {
