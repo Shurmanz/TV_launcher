@@ -2358,7 +2358,7 @@ public class HomeActivity extends Activity {
             p.count.setText(list.isEmpty() ? "" : plural(list.size(), "фильм", "фильма", "фильмов"));
             String err = Shows.filmsError(this);
             if (films.isEmpty() && !err.isEmpty()) note(p, "Не получилось загрузить фильмы: " + err, true);
-            else note(p, (ru ? "Русские" : "Иностранные") + " фильмы, вышедшие в цифре за 3 месяца, с оценкой от 7  ·  свежие первыми", false);
+            else note(p, (ru ? "Русские" : "Иностранные") + " фильмы, вышедшие в цифре за полгода, с оценкой от 7  ·  свежие первыми", false);
             if (films.isEmpty()) {
                 if (err.isEmpty()) note(p, "Загружаю фильмы…", false);
                 Shows.refreshFilms(this, () -> { if (panel == p && (!Shows.films(this).isEmpty() || !Shows.filmsError(this).isEmpty())) openWatch(); });
