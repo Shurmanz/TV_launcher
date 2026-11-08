@@ -164,6 +164,8 @@ public class HomeActivity extends Activity {
         // отладка из adb: am start -n ru.alex.tvhome/.HomeActivity --es open watch|show:<id>
         String open = intent.getStringExtra("open");
         if ("watch".equals(open)) openWatchFresh();
+        else if ("inputs".equals(open)) openInputs();
+        else if ("keys".equals(open)) openKeys();
         else if ("tokenhelp".equals(open)) openTokenHelp();
         else if (open != null && open.startsWith("show:")) {
             int id = Integer.parseInt(open.substring(5));
@@ -1334,6 +1336,12 @@ public class HomeActivity extends Activity {
         String sp = Comfort.startPkg(this);
         section(p, "При включении открывать", sp.isEmpty() ? "Главный экран Slauncher." : label(sp) + " (кнопка «Домой» — в Slauncher).", st);
 
+        LinearLayout kb = new LinearLayout(this);
+        addAction(kb, "Настроить…", this::openKeys);
+        int nk = Keys.all(this).size();
+        section(p, "Кнопки пульта", nk == 0 ? "Своё действие на любую кнопку: Netflix, YouTube, цветные, цифры — например, открыть Зону."
+                : "Назначено кнопок: " + nk + ".", kb);
+
         LinearLayout bgr = new LinearLayout(this);
         String bgMode = Comfort.bg(this);
         addAction(bgr, ("photo".equals(bgMode) ? "✓ " : "") + "Фото природы", () -> setHomeBackground("photo"));
@@ -1698,6 +1706,7 @@ public class HomeActivity extends Activity {
     // ---------- панели ----------
 
     private void showPanel(FrameLayout p, View first) {
+        stopLearn();
         closePanel();
         beforePanel = getCurrentFocus();
         panel = p;
@@ -1711,6 +1720,7 @@ public class HomeActivity extends Activity {
     }
 
     private void closePanel() {
+        stopLearn();
         HaSetupServer.stop();
         Transfer.stop();
         if (panel == null) return;
@@ -2755,6 +2765,146 @@ public class HomeActivity extends Activity {
         });
         LinearLayout.LayoutParams rl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         rl.topMargin = dp(14);
+        p.body.addView(row, rl);
+        showPanel(p, first);
+    }
+
+    // ---------- кнопки пульта ----------
+
+    private Runnable learnTimeout;
+
+    private void stopLearn() {
+        if (HomeKeyService.learner == null && learnTimeout == null) return;
+        HomeKeyService.learner = null;
+        if (learnTimeout != null) { content.removeCallbacks(learnTimeout); learnTimeout = null; }
+        HomeKeyService.refresh();
+    }
+
+    /** Список назначенных кнопок + «Добавить кнопку». */
+    private void openKeys() {
+        Panel p = new Panel(this, "Кнопки пульта", "Своё действие на любую кнопку пульта — по нажатию и по долгому нажатию. "
+                + "Стрелки, ОК, «Назад», громкость и питание не меняются.");
+        List<Keys.Bind> list = Keys.all(this);
+        p.count.setText(list.isEmpty() ? "" : "назначено: " + list.size());
+        View first = null;
+        if (HomeKeyService.inst == null) {
+            LinearLayout a = new LinearLayout(this);
+            first = addAction(a, "Открыть спецвозможности", () -> {
+                closePanel();
+                try { startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); }
+                catch (Exception ignored) { }
+            });
+            section(p, "Нужна служба Slauncher", "Включите: Специальные возможности → «Slauncher: кнопка «Домой»». "
+                    + "Через неё Slauncher видит нажатия пульта.", a);
+        }
+        for (Keys.Bind b : list) {
+            LinearLayout a = new LinearLayout(this);
+            View e = addAction(a, "Изменить", () -> openKeyBind(b));
+            addAction(a, "Удалить", () -> { Keys.remove(this, b.id); openKeys(); });
+            if (first == null) first = e;
+            section(p, b.name, "Нажатие → " + Keys.label(this, b.tap)
+                    + (b.hold != null ? ".   Долгое → " + Keys.label(this, b.hold) : "") + ".", a);
+        }
+        LinearLayout row = new LinearLayout(this);
+        View add = addAction(row, "Добавить кнопку", this::learnKey);
+        addAction(row, "Закрыть", this::closePanel);
+        LinearLayout.LayoutParams rl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rl.topMargin = dp(18);
+        p.body.addView(row, rl);
+        showPanel(p, HomeKeyService.inst == null ? first : list.isEmpty() ? add : first);
+    }
+
+    /** «Нажмите кнопку на пульте» — ловим первое нажатие (10 с). */
+    private void learnKey() {
+        if (HomeKeyService.inst == null) { openKeys(); return; }
+        Panel p = new Panel(this, "Нажмите кнопку на пульте", "Ту, которую хотите переназначить — например, Netflix, YouTube или цветную.");
+        TextView info = infoLine("Жду нажатия…");
+        info.setTextSize(20);
+        LinearLayout.LayoutParams il = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        il.topMargin = dp(10);
+        p.body.addView(info, il);
+        LinearLayout row = new LinearLayout(this);
+        View cancel = addAction(row, "Отмена", this::openKeys);
+        LinearLayout.LayoutParams rl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rl.topMargin = dp(18);
+        p.body.addView(row, rl);
+        showPanel(p, cancel);
+        HomeKeyService.learner = e -> {
+            if (panel != p) return;
+            if (Keys.forbidden(e.getKeyCode())) {
+                if (e.getKeyCode() != KeyEvent.KEYCODE_DPAD_CENTER && e.getKeyCode() != KeyEvent.KEYCODE_ENTER)
+                    info.setText("«" + Keys.name(e) + "» переназначать нельзя — нажмите другую кнопку");
+                return;
+            }
+            String id = Keys.id(e);
+            String name = Keys.name(e);
+            stopLearn();
+            Keys.Bind b = Keys.get(this, id);
+            if (b == null) { b = new Keys.Bind(id, name); pickKeyAction(b, false, true); }
+            else openKeyBind(b);
+        };
+        HomeKeyService.refresh();
+        learnTimeout = () -> {
+            learnTimeout = null;
+            if (panel != p) return;
+            HomeKeyService.learner = null;
+            HomeKeyService.refresh();
+            info.setText("Ничего не поймал. Похоже, эту кнопку телевизор обрабатывает сам и не отдаёт — её переназначить не выйдет.");
+            row.removeAllViews();
+            View again = addAction(row, "Ещё раз", this::learnKey);
+            addAction(row, "Назад", this::openKeys);
+            again.requestFocus();
+        };
+        content.postDelayed(learnTimeout, 10_000);
+    }
+
+    /** Выбор действия: на нажатие или на долгое нажатие. fresh — кнопку только что поймали. */
+    private void pickKeyAction(Keys.Bind b, boolean hold, boolean fresh) {
+        Panel p = new Panel(this, b.name + (hold ? " — долгое нажатие" : " — нажатие"), "Что открыть?");
+        LinearLayout strip = p.strip();
+        String cur = hold ? b.hold : b.tap;
+        View first = null;
+        if (hold) first = addAction(strip, (cur == null ? "✓ " : "") + "Ничего", () -> { b.hold = null; Keys.save(this, b); openKeyBind(b); });
+        for (String[] a : Keys.ACTIONS) {
+            View v = addAction(strip, (a[0].equals(cur) ? "✓ " : "") + a[1], () -> setKeyAction(b, hold, a[0]));
+            if (first == null || a[0].equals(cur)) first = v;
+        }
+        List<Apps.App> list = new ArrayList<>(dock);
+        for (Apps.App a : allApps) if (!list.contains(a)) list.add(a);
+        for (Apps.App a : list) {
+            if (Apps.SETTINGS.equals(a.pkg)) continue;
+            String act = "app:" + a.pkg;
+            View v = addAction(strip, (act.equals(cur) ? "✓ " : "") + a.label, () -> setKeyAction(b, hold, act));
+            if (act.equals(cur)) first = v;
+        }
+        LinearLayout row = new LinearLayout(this);
+        addAction(row, "Отмена", () -> { if (fresh) openKeys(); else openKeyBind(b); });
+        LinearLayout.LayoutParams rl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rl.topMargin = dp(10);
+        p.body.addView(row, rl);
+        showPanel(p, first);
+    }
+
+    private void setKeyAction(Keys.Bind b, boolean hold, String a) {
+        if (hold) b.hold = a; else b.tap = a;
+        Keys.save(this, b);
+        openKeyBind(b);
+    }
+
+    /** Карточка одной кнопки: что назначено, поменять, долгое нажатие, удалить. */
+    private void openKeyBind(Keys.Bind b) {
+        Panel p = new Panel(this, b.name, "Готово — нажмите эту кнопку на пульте, чтобы проверить.");
+        LinearLayout t = new LinearLayout(this);
+        View first = addAction(t, "Изменить", () -> pickKeyAction(b, false, false));
+        section(p, "Нажатие", Keys.label(this, b.tap), t);
+        LinearLayout h = new LinearLayout(this);
+        addAction(h, b.hold == null ? "Назначить…" : "Изменить", () -> pickKeyAction(b, true, false));
+        section(p, "Долгое нажатие", b.hold == null ? "Не назначено — можно повесить второе действие." : Keys.label(this, b.hold), h);
+        LinearLayout row = new LinearLayout(this);
+        addAction(row, "Готово", this::openKeys);
+        addAction(row, "Удалить", () -> { Keys.remove(this, b.id); openKeys(); });
+        LinearLayout.LayoutParams rl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rl.topMargin = dp(18);
         p.body.addView(row, rl);
         showPanel(p, first);
     }
