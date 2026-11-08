@@ -2832,6 +2832,7 @@ public class HomeActivity extends Activity {
             } catch (Exception e) { Toast.makeText(this, "На этом телевизоре такого экрана нет", Toast.LENGTH_SHORT).show(); }
         });
         addAction(row, "Переместить", () -> startMove(app.pkg));
+        addAction(row, "Добавить приложения…", () -> openLibrary(app));
         addAction(row, "Убрать с главного", () -> {
             List<String> d = apps.dockPackages();
             d.remove(app.pkg);
