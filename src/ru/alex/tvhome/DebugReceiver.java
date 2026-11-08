@@ -86,6 +86,9 @@ public class DebugReceiver extends BroadcastReceiver {
                     Log.i(Net.TAG, "debug badge: perms=" + MediaBadge.permitted(app) + " adb=" + Adb.known(app) + " text=" + bi.text() + " | " + bi.raw);
                     if (!bi.text().isEmpty()) Overlay.badge(app, bi.text(), bi.hdr);
                 }
+                if (intent.getBooleanExtra("export", false)) { // сохранить настройки Slauncher в файл (бэкап из adb)
+                    Log.i(Net.TAG, "debug: export " + Transfer.save(app));
+                }
                 if (intent.getBooleanExtra("update", false)) {
                     Updater.check(app, true, (a, n) -> Log.i(Net.TAG, "update available=" + a + " " + n));
                 }
