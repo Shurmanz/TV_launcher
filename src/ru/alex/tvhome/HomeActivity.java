@@ -602,7 +602,7 @@ public class HomeActivity extends Activity {
             v.postDelayed(() -> launch(app), 170);
         });
         card.setOnLongClickListener(v -> {
-            if (moving == null) { if (app == null) openLibrary(null); else openTileMenu(app); }
+            if (moving == null) openLibrary(app); // долгое ОК — сразу библиотека приложений (там же действия с этой плиткой)
             return true;
         });
         return cell;
@@ -1842,6 +1842,8 @@ public class HomeActivity extends Activity {
                 closePanel();
                 reloadApps();
             });
+            addAction(actions, "Закрыть", () -> { closePanel(); forceClose(ctx); });
+            addAction(actions, "Очистить кеш", () -> { closePanel(); clearCacheOf(ctx); });
         }
         if (!wall.isSky()) {
             View next = addAction(actions, "Следующее фото", () -> { closePanel(); nextPhoto(); });
@@ -2803,34 +2805,37 @@ public class HomeActivity extends Activity {
     }
 
     /** Долгое ОК на плитке приложения: открыть, закрыть зависшее, очистить кеш, переставить, убрать. */
+    /** Закрыть зависшее приложение: через отладку — полностью, без неё — фоновые процессы. */
+    private void forceClose(Apps.App app) {
+        new Thread(() -> {
+            boolean ok = false;
+            try {
+                if (Adb.known(this)) { Adb.sh(this, "am force-stop " + app.pkg); ok = true; }
+                else {
+                    ((android.app.ActivityManager) getSystemService(ACTIVITY_SERVICE)).killBackgroundProcesses(app.pkg);
+                    ok = true;
+                }
+            } catch (Exception e) { Net.log("force-stop", e); }
+            boolean fok = ok;
+            runOnUiThread(() -> Toast.makeText(this, fok ? "«" + app.label + "» закрыто — в следующий раз откроется заново"
+                    : "Не получилось закрыть «" + app.label + "»", Toast.LENGTH_SHORT).show());
+        }).start();
+    }
+
+    private void clearCacheOf(Apps.App app) {
+        Toast.makeText(this, "Откроется страница приложения — там «Очистить кеш»", Toast.LENGTH_LONG).show();
+        try {
+            startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    android.net.Uri.parse("package:" + app.pkg)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        } catch (Exception e) { Toast.makeText(this, "На этом телевизоре такого экрана нет", Toast.LENGTH_SHORT).show(); }
+    }
+
     private void openTileMenu(Apps.App app) {
         Panel p = new Panel(this, app.label, "Что сделать с приложением");
         LinearLayout row = new LinearLayout(this);
         View first = addAction(row, "Открыть", () -> { closePanel(); launch(app); });
-        addAction(row, "Закрыть", () -> {
-            closePanel();
-            new Thread(() -> {
-                boolean ok = false;
-                try {
-                    if (Adb.known(this)) { Adb.sh(this, "am force-stop " + app.pkg); ok = true; }
-                    else {
-                        ((android.app.ActivityManager) getSystemService(ACTIVITY_SERVICE)).killBackgroundProcesses(app.pkg);
-                        ok = true;
-                    }
-                } catch (Exception e) { Net.log("force-stop", e); }
-                boolean fok = ok;
-                runOnUiThread(() -> Toast.makeText(this, fok ? "«" + app.label + "» закрыто — в следующий раз откроется заново"
-                        : "Не получилось закрыть «" + app.label + "»", Toast.LENGTH_SHORT).show());
-            }).start();
-        });
-        addAction(row, "Очистить кеш", () -> {
-            closePanel();
-            Toast.makeText(this, "Откроется страница приложения — там «Очистить кеш»", Toast.LENGTH_LONG).show();
-            try {
-                startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                        android.net.Uri.parse("package:" + app.pkg)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-            } catch (Exception e) { Toast.makeText(this, "На этом телевизоре такого экрана нет", Toast.LENGTH_SHORT).show(); }
-        });
+        addAction(row, "Закрыть", () -> { closePanel(); forceClose(app); });
+        addAction(row, "Очистить кеш", () -> { closePanel(); clearCacheOf(app); });
         addAction(row, "Переместить", () -> startMove(app.pkg));
         addAction(row, "Добавить приложения…", () -> openLibrary(app));
         addAction(row, "Убрать с главного", () -> {
