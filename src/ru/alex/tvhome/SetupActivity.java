@@ -63,7 +63,21 @@ public class SetupActivity extends Activity {
 
     /** Есть ли важные невыполненные пункты (для показа при первом запуске). */
     static boolean needed(Activity a) {
-        return !homeServiceOn(a) || !Settings.canDrawOverlays(a);
+        return !homeOk(a) || !Settings.canDrawOverlays(a);
+    }
+
+    /**
+     * «Домой» ведёт в Slauncher: либо работает служба в Спецвозможностях, либо Slauncher сам главный экран системы
+     * (штатный Google TV отключён в «Оптимизации» — так бывает нужно на приставках, где служба не держится).
+     */
+    static boolean homeOk(android.content.Context c) {
+        if (homeServiceOn(c)) return true;
+        try {
+            Intent h = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME);
+            android.content.pm.ResolveInfo r = c.getPackageManager().resolveActivity(h, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY);
+            if (r != null && r.activityInfo != null && c.getPackageName().equals(r.activityInfo.packageName)) return true;
+            return Optimizer.stockHomes(c).isEmpty();
+        } catch (Exception e) { return false; }
     }
 
     static boolean homeServiceOn(android.content.Context c) {
@@ -150,7 +164,7 @@ public class SetupActivity extends Activity {
         return new Step[]{
                 new Step("Кнопка «Домой» открывает Slauncher",
                         "Специальные возможности → «Slauncher: кнопка «Домой»» → Включить.",
-                        homeServiceOn(this), true, () -> {
+                        homeOk(this), true, () -> {
                             getSharedPreferences(PREF, MODE_PRIVATE).edit().putBoolean("acc_tried", true).apply();
                             open(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
                         },
