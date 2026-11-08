@@ -37,6 +37,17 @@ public class SetupActivity extends Activity {
         }
     }
 
+    /** Энергосбережение Android выключено и Slauncher в исключениях Doze. */
+    static boolean sleepOk(android.content.Context c) {
+        boolean lps = Settings.Global.getInt(c.getContentResolver(), "low_power_standby_enabled", 0) != 0;
+        android.os.PowerManager pm = (android.os.PowerManager) c.getSystemService(POWER_SERVICE);
+        return !lps && pm.isIgnoringBatteryOptimizations(c.getPackageName());
+    }
+
+    static boolean adbKeepOk(android.content.Context c) {
+        return Settings.Global.getLong(c.getContentResolver(), "adb_allowed_connection_time", 604800000L) == 0;
+    }
+
     /** Есть ли важные невыполненные пункты (для показа при первом запуске). */
     static boolean needed(Activity a) {
         return !homeServiceOn(a) || !Settings.canDrawOverlays(a);
@@ -141,7 +152,8 @@ public class SetupActivity extends Activity {
                         homeServiceOn(this), true, () -> open(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)),
                         "adb shell settings put secure enabled_accessibility_services " + getPackageName() + "/.HomeKeyService"),
                 new Step("Уведомления поверх фильма",
-                        "Показ поверх других приложений → Slauncher → Разрешить. Нужно для карточек домофона и протечки.",
+                        "Показ поверх других приложений → Slauncher → Разрешить." + (Comfort.haHome(this)
+                                ? " Нужно для карточек домофона и протечки." : " Нужно для всплывающих подсказок поверх фильма."),
                         Settings.canDrawOverlays(this), true,
                         () -> open(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName()))),
                         "adb shell appops set " + getPackageName() + " SYSTEM_ALERT_WINDOW allow"),
@@ -159,6 +171,16 @@ public class SetupActivity extends Activity {
                         Updater.canInstall(this), false,
                         () -> open(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getPackageName()))),
                         "adb shell appops set " + getPackageName() + " REQUEST_INSTALL_PACKAGES allow"),
+                new Step("Не засыпать целиком",
+                        "С погасшим экраном телевизор остаётся в сети: пульт в телефоне и голосовые ассистенты могут его включить. "
+                                + "Выключает энергосбережение Android и добавляет Slauncher в исключения глубокого сна. Включается кнопкой "
+                                + "«Включить всё автоматически» или командами:",
+                        sleepOk(this), false, null,
+                        "adb shell settings put global low_power_standby_enabled 0; adb shell cmd deviceidle whitelist +" + getPackageName()),
+                new Step("Не сбрасывать разрешение отладки",
+                        "Android через 7 дней забывает разрешение отладки — тогда тихие обновления и «Оптимизация» перестают работать.",
+                        adbKeepOk(this), false, null,
+                        "adb shell settings put global adb_allowed_connection_time 0"),
                 tcl ? new Step("Автозапуск (TCL)",
                         "TCL не даёт сторонним приложениям запускаться после перезагрузки. Без этого после включения откроется Google TV. "
                                 + "На экране телевизора такого переключателя нет — только командой:",

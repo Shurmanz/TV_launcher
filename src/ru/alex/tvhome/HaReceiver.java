@@ -28,6 +28,7 @@ public class HaReceiver extends BroadcastReceiver {
     public void onReceive(Context ctx, Intent i) {
         String a = i.getAction();
         android.util.Log.i(Net.TAG, "ha " + a + " " + i.getExtras());
+        prefs(ctx).edit().putLong("seen", System.currentTimeMillis()).apply(); // в этом доме есть Home Assistant
         if (STATUS.equals(a)) {
             String data = i.getStringExtra("data");
             if (data == null) return;

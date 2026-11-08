@@ -10,8 +10,9 @@ import android.view.accessibility.AccessibilityEvent;
  * в нём живут результаты голосового поиска, профили и кнопки YouTube/Netflix на пульте.
  * Поэтому служба только следит за появлением штатного главного экрана и сразу открывает вместо него Slauncher.
  *
- * Нажатия кнопок НЕ перехватываются (без FLAG_REQUEST_FILTER_KEY_EVENTS): на TCL фильтрация ломает
- * автоповтор стрелок. Содержимое окон не читается (canRetrieveWindowContent=false).
+ * Нажатия кнопок перехватываются, только когда в «Кнопки пульта» что-то назначено (или кнопку сейчас «ловят»):
+ * на TCL постоянная фильтрация ломала автоповтор стрелок. Стрелки и прочая навигация пропускаются сразу.
+ * Содержимое окон не читается (canRetrieveWindowContent=false).
  */
 public class HomeKeyService extends AccessibilityService {
     private static final String STOCK = "com.google.android.apps.tv.launcherx";
@@ -24,6 +25,98 @@ public class HomeKeyService extends AccessibilityService {
     private static final long VOICE_GRACE_MS = 90_000L;
 
     private long lastLaunch;
+
+    static volatile HomeKeyService inst;
+    /** Режим «нажмите кнопку на пульте»: сюда отдаётся первое нажатие (в UI-потоке). */
+    static volatile java.util.function.Consumer<android.view.KeyEvent> learner;
+    private final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+
+    /** Включить/выключить перехват кнопок под текущие назначения. */
+    static void refresh() {
+        HomeKeyService s = inst;
+        if (s != null) s.main.post(s::applyFilter);
+    }
+
+    private void applyFilter() {
+        try {
+            android.accessibilityservice.AccessibilityServiceInfo i = getServiceInfo();
+            if (i == null) return;
+            // кнопки пульта пока только на домашних ТВ; там перехват всегда — зажатая на 5 с свободная кнопка предлагает действие
+            boolean want = learner != null || Comfort.labs(this);
+            int f = want ? i.flags | android.accessibilityservice.AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS
+                    : i.flags & ~android.accessibilityservice.AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS;
+            if (f != i.flags) {
+                i.flags = f;
+                setServiceInfo(i);
+                android.util.Log.i(Net.TAG, "keys: перехват кнопок " + (want ? "включён" : "выключен"));
+            }
+        } catch (Exception e) { Net.log("keys filter", e); }
+    }
+
+    private Keys.Bind holding;
+    private boolean holdFired;
+    private final Runnable holdTask = () -> {
+        Keys.Bind b = holding;
+        if (b == null) return;
+        holdFired = true;
+        Keys.run(this, b.hold);
+    };
+
+    /** Свободную кнопку держат 5 с — открыть «Что назначить на эту кнопку?». Нажатие при этом проходит как обычно. */
+    private String offerId, offerName;
+    private final Runnable offerTask = () -> {
+        String id = offerId;
+        offerId = null;
+        if (id == null || learner != null) return;
+        Intent i = new Intent(this, HomeActivity.class);
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NO_ANIMATION);
+        i.putExtra("open", "bindkey:" + id);
+        i.putExtra("keyname", offerName);
+        startActivity(i);
+    };
+
+    private void watchHold(android.view.KeyEvent e) {
+        if (!Keys.offerable(e.getKeyCode())) return;
+        String id = Keys.id(e);
+        if (e.getAction() == android.view.KeyEvent.ACTION_DOWN) {
+            if (e.getRepeatCount() > 0 && id.equals(offerId)) return;
+            offerId = id;
+            offerName = Keys.name(e);
+            main.removeCallbacks(offerTask);
+            main.postDelayed(offerTask, 5000);
+        } else if (e.getAction() == android.view.KeyEvent.ACTION_UP && id.equals(offerId)) {
+            main.removeCallbacks(offerTask);
+            offerId = null;
+        }
+    }
+
+    @Override
+    protected boolean onKeyEvent(android.view.KeyEvent e) {
+        int kc = e.getKeyCode();
+        java.util.function.Consumer<android.view.KeyEvent> l = learner;
+        if (l != null) {
+            if (e.getAction() == android.view.KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) main.post(() -> l.accept(e));
+            return !Keys.forbidden(kc); // навигация работает и в режиме «ловли» — чтобы можно было отменить
+        }
+        if (Keys.forbidden(kc)) return false;
+        Keys.Bind b = Keys.get(this, Keys.id(e));
+        if (b == null) { watchHold(e); return false; }
+        if (e.getAction() == android.view.KeyEvent.ACTION_DOWN) {
+            if (e.getRepeatCount() > 0) return true;
+            if (b.hold == null) { main.post(() -> Keys.run(this, b.tap)); return true; }
+            holding = b;
+            holdFired = false;
+            main.removeCallbacks(holdTask);
+            main.postDelayed(holdTask, 600);
+            return true;
+        }
+        if (e.getAction() == android.view.KeyEvent.ACTION_UP && holding != null && holding.id.equals(b.id)) {
+            main.removeCallbacks(holdTask);
+            if (!holdFired) main.post(() -> Keys.run(this, b.tap));
+            holding = null;
+        }
+        return true;
+    }
     /** До этого момента (elapsedRealtime) штатный главный экран не перебиваем: на нём идёт обновление Slauncher. */
     static volatile long holdStockUntil;
     private long lastVoice;
@@ -92,6 +185,8 @@ public class HomeKeyService extends AccessibilityService {
     @Override
     protected void onServiceConnected() {
         super.onServiceConnected();
+        inst = this;
+        applyFilter(); // назначены кнопки пульта — включить перехват
         Comfort.applyStayOnline(this); // на Xiaomi — не засыпать вместе с Wi‑Fi
         PeerSync.start(this); // общий «Слежу» между телевизорами по Wi‑Fi
         HaClient.ensure(this); // служба живёт всегда — держит связь с HA и карточки событий поверх фильма
@@ -172,6 +267,7 @@ public class HomeKeyService extends AccessibilityService {
     @Override
     public void onDestroy() {
         try { unregisterReceiver(screen); } catch (Exception ignored) { }
+        if (inst == this) inst = null;
         super.onDestroy();
     }
 

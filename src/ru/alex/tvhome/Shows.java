@@ -202,7 +202,11 @@ final class Shows {
         JSONArray a = new JSONArray();
         for (Show x : list) a.put(x.json());
         JSONObject doc = new JSONObject();
-        try { doc.put("t", System.currentTimeMillis()).put("list", a); } catch (Exception ignored) { }
+        try {
+            doc.put("t", System.currentTimeMillis()).put("list", a);
+            JSONArray h = followDoc(c).optJSONArray("hidden");
+            if (h != null) doc.put("hidden", h); // скрытые из подборки едут в том же документе
+        } catch (Exception ignored) { }
         prefs(c).edit().putString("follow", doc.toString()).apply();
         prefs(c).edit().putLong("eps_at", 0).apply(); // список изменился — даты серий перечитать
         Context app = c.getApplicationContext();
@@ -213,6 +217,37 @@ final class Shows {
             if (done != null) ui.post(done);
         });
     }
+
+    // --- «Не показывать»: id скрытых сериалов/фильмов (у фильмов id отрицательные), общие для телевизоров вместе со «Слежу»
+
+    static java.util.Set<Integer> hidden(Context c) {
+        java.util.Set<Integer> out = new java.util.HashSet<>();
+        JSONArray h = followDoc(c).optJSONArray("hidden");
+        if (h != null) for (int i = 0; i < h.length(); i++) out.add(h.optInt(i));
+        return out;
+    }
+
+    /** on=true — скрыть из подборки; on=false — вернуть. id=0 с on=false — вернуть все. */
+    static void setHidden(Context c, int id, boolean on) {
+        JSONObject doc = followDoc(c);
+        java.util.Set<Integer> h = new java.util.LinkedHashSet<>(hidden(c));
+        if (id == 0 && !on) h.clear();
+        else if (on) h.add(id);
+        else h.remove(id);
+        JSONArray a = new JSONArray();
+        for (int x : h) a.put(x);
+        try {
+            doc.put("t", System.currentTimeMillis()).put("hidden", a);
+            if (doc.optJSONArray("list") == null) doc.put("list", new JSONArray());
+        } catch (Exception ignored) { }
+        prefs(c).edit().putString("follow", doc.toString()).apply();
+        Context app = c.getApplicationContext();
+        JSONObject send = doc;
+        net.execute(() -> { haPut(app, send); PeerSync.push(app, send); });
+    }
+
+    /** Сколько показывать в одной группе (русские / иностранные): скрытые выпадают, на их место встают следующие. */
+    static final int SHOW_PER_GROUP = 20;
 
     // ---------- обновление ----------
 
@@ -226,8 +261,8 @@ final class Shows {
                 haSync(app);
                 PeerSync.sync(app);
                 long now = System.currentTimeMillis();
-                if (prefs(app).getInt("picks_rules", 0) != 3) { // правила подборки сменились — перечитать сразу
-                    prefs(app).edit().putInt("picks_rules", 3).putLong("picks_at", 0).putLong("films_at", 0).apply();
+                if (prefs(app).getInt("picks_rules", 0) != 4) { // правила подборки сменились — перечитать сразу
+                    prefs(app).edit().putInt("picks_rules", 4).putLong("picks_at", 0).putLong("films_at", 0).apply();
                 }
                 if (now - prefs(app).getLong("picks_at", 0) > PICKS_TTL) fetchPicks(app);
                 if (!token(app).isEmpty() && now - prefs(app).getLong("films_at", 0) > PICKS_TTL) fetchFilms(app);
@@ -270,8 +305,8 @@ final class Shows {
         }
         for (Integer id : ru.keySet()) all.remove(id);
         List<Show> out = new ArrayList<>();
-        out.addAll(details(top(ru.values(), y, 30)));
-        out.addAll(details(top(all.values(), y, 45)));
+        out.addAll(details(top(ru.values(), y, 45)));  // с запасом: скрытые заменяются следующими
+        out.addAll(details(top(all.values(), y, 75)));
         List<Show> keep = new ArrayList<>();
         for (Show s : out) if (s.best() >= SERIES_MIN) keep.add(s);
         kpPosters(c, keep); // у MyShows постеры мелкие — берём с Кинопоиска, если есть токен
@@ -543,7 +578,7 @@ final class Shows {
                 + "&rating.kp=" + (int) FILMS_MIN + "-10&premiere.digital=" + range;
         Map<Integer, Show> m = new LinkedHashMap<>();
         try {
-            for (String q : new String[]{base + "&limit=50&countries.name=" + java.net.URLEncoder.encode("Россия", "UTF-8"), base + "&limit=100"}) {
+            for (String q : new String[]{base + "&limit=60&countries.name=" + java.net.URLEncoder.encode("Россия", "UTF-8"), base + "&limit=150"}) {
                 JSONArray docs = new JSONObject(kpGet(c, q)).optJSONArray("docs");
                 if (docs == null) continue;
                 for (int i = 0; i < docs.length(); i++) {

@@ -51,7 +51,7 @@ public class HomeActivity extends Activity {
     private View nightDim;
     private GlowView glow;
     private ClockView clock;
-    private TextView weatherBtn, netLabel, moveHint, tip, newEps;
+    private TextView weatherBtn, netLabel, moveHint, tip, newEps, storageAlert;
     private LinearLayout updBar;
     private FrameLayout captionBox;
     private TextView sleepInfo;
@@ -113,6 +113,7 @@ public class HomeActivity extends Activity {
         HaClient.ensure(this);
         updateTip(true);
         updateNewEps();
+        updateStorageAlert();
         Shows.refresh(this, this::updateNewEps);
         root.removeCallbacks(sleepTick);
         sleepTick.run();
@@ -163,6 +164,17 @@ public class HomeActivity extends Activity {
         // отладка из adb: am start -n ru.alex.tvhome/.HomeActivity --es open watch|show:<id>
         String open = intent.getStringExtra("open");
         if ("watch".equals(open)) openWatchFresh();
+        else if ("inputs".equals(open)) openInputs();
+        else if ("keys".equals(open)) openKeys();
+        else if (open != null && open.startsWith("bindkey:")) { // зажали свободную кнопку пульта на 5 с
+            String id = open.substring(8);
+            Keys.Bind b = Keys.get(this, id);
+            if (b != null) openKeyBind(b);
+            else {
+                String n = intent.getStringExtra("keyname");
+                pickKeyAction(new Keys.Bind(id, n == null ? "Кнопка" : n), false, true);
+            }
+        }
         else if ("tokenhelp".equals(open)) openTokenHelp();
         else if (open != null && open.startsWith("show:")) {
             int id = Integer.parseInt(open.substring(5));
@@ -186,8 +198,7 @@ public class HomeActivity extends Activity {
     public void onBackPressed() {
         if (moving != null) { endMove(); return; }
         if (panel != null && panel == detailPanel) { detailPanel = null; openWatch(); return; } // из карточки — назад к подборке
-        if (panel != null && panel == tokenHelp) { tokenHelp = null; openWatch(); return; }      // из инструкции — назад к фильмам
-        if (panel != null) closePanel();
+        if (panel != null) backPanel();
         // на домашнем экране «Назад» ничего не делает
     }
 
@@ -247,12 +258,18 @@ public class HomeActivity extends Activity {
         });
         weatherBtn.setOnClickListener(v -> openWeather());
         clock = new ClockView(this, 58, weatherBtn);
+        // предупреждение о погоде — только когда есть повод
+        TextView walert = Ui.text(this, 15, 600, 0xFFFFC94D);
+        walert.setPadding(dp(14), 0, dp(14), dp(4));
+        walert.setVisibility(View.GONE);
+        clock.alert = walert;
         clock.setNightListener(this::applyNight);
         wall.addListener(clock);
         left.addView(clock, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         LinearLayout.LayoutParams wl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         wl.setMargins(-dp(14), -dp(8), 0, 0); // строка погоды ближе к часам
         left.addView(weatherBtn, wl);
+        left.addView(walert);
         FrameLayout.LayoutParams ll = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP | Gravity.START);
         ll.setMargins(dp(64), dp(38), 0, 0);
@@ -306,6 +323,24 @@ public class HomeActivity extends Activity {
         LinearLayout.LayoutParams nel = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         nel.topMargin = dp(10);
         left.addView(newEps, nel);
+
+        // «Мало места» — только когда свободно меньше 2 ГБ или 8 %; ОК — экран «Память телевизора»
+        storageAlert = Ui.text(this, 15, 500, 0xFFFFFFFF);
+        storageAlert.setShadowLayer(0, 0, 0, 0);
+        storageAlert.setPadding(dp(16), dp(8), dp(18), dp(8));
+        storageAlert.setFocusable(true);
+        storageAlert.setVisibility(View.GONE);
+        storageAlert.setBackground(Ui.round(0xCC1C1C1E, dp(100), dp(1.5f), 0xFFFF9F0A));
+        storageAlert.setOnFocusChangeListener((v, has) -> {
+            v.setBackground(Ui.round(has ? 0xFFFF9F0A : 0xCC1C1C1E, dp(100), has ? 0 : dp(1.5f), 0xFFFF9F0A));
+            storageAlert.setTextColor(has ? 0xFF111111 : 0xFFFFFFFF);
+            Ui.focusScale(v, has, 1.04f);
+            if (has) glow.hide();
+        });
+        storageAlert.setOnClickListener(v -> openStorage());
+        LinearLayout.LayoutParams sal = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        sal.topMargin = dp(10);
+        left.addView(storageAlert, sal);
 
         // --- плитки: по 5 в строке, лишние — ниже, с прокруткой
         int sw = getResources().getDisplayMetrics().widthPixels;
@@ -564,7 +599,7 @@ public class HomeActivity extends Activity {
             v.postDelayed(() -> launch(app), 170);
         });
         card.setOnLongClickListener(v -> {
-            if (moving == null) openLibrary(app);
+            if (moving == null) { if (app == null) openLibrary(null); else openTileMenu(app); }
             return true;
         });
         return cell;
@@ -828,6 +863,12 @@ public class HomeActivity extends Activity {
             watchFocus = 0;
             watchTab = "films";
             openWatch();
+        });
+        int hidN = Shows.hidden(this).size();
+        if (hidN > 0) addAction(kp, "Вернуть скрытые (" + hidN + ")", () -> {
+            Shows.setHidden(this, 0, false);
+            Toast.makeText(this, "Скрытые сериалы и фильмы снова в подборке", Toast.LENGTH_SHORT).show();
+            openAppSettings(true);
         });
         section(p, "Фильмы в «Что посмотреть»", Shows.token(this).isEmpty()
                 ? "Токен Кинопоиска не введён — без него вкладка «Фильмы» пустая."
@@ -1291,14 +1332,33 @@ public class HomeActivity extends Activity {
                     + "Свободно " + Comfort.gb(r[1]) + " из " + Comfort.gb(r[2]), Toast.LENGTH_LONG).show();
             openComfort();
         }));
+        addAction(sl, "Место и кеш", this::openStorage);
         int left = Comfort.sleepLeftMin(this);
+        long[] stg = storage();
         section(p, "Сон и память", (left > 0 ? "Выключение через " + left + " мин.  " : "")
-                + "Свободно " + Comfort.gb(Comfort.availMem(this)) + " из " + Comfort.gb(Comfort.totalMem(this)) + ".", sl);
+                + "Оперативная: свободно " + Comfort.gb(Comfort.availMem(this)) + " из " + Comfort.gb(Comfort.totalMem(this))
+                + ".  Место: свободно " + Comfort.gb(stg[0]) + ".", sl);
+
+        if (Comfort.labs(this)) { // пока только на домашних телевизорах
+            LinearLayout jk = new LinearLayout(this);
+            addAction(jk, "Открыть…", this::openJunk);
+            int nr = Junk.removed(this).length();
+            section(p, "Лишние приложения", "Всё, чего нет на главном экране: когда открывали и сколько весит. Ненужное — убрать, "
+                    + "вернуть можно в любой момент." + (nr > 0 ? "  Убрано: " + nr + "." : ""), jk);
+        }
 
         LinearLayout st = new LinearLayout(this);
         addAction(st, "Выбрать…", this::openStartPicker);
         String sp = Comfort.startPkg(this);
         section(p, "При включении открывать", sp.isEmpty() ? "Главный экран Slauncher." : label(sp) + " (кнопка «Домой» — в Slauncher).", st);
+
+        if (Comfort.labs(this)) { // пока только на домашних телевизорах
+            LinearLayout kb = new LinearLayout(this);
+            addAction(kb, "Настроить…", this::openKeys);
+            int nk = Keys.all(this).size();
+            section(p, "Кнопки пульта", nk == 0 ? "Своё действие на любую кнопку: Netflix, YouTube, цветные, цифры — например, открыть Зону."
+                    : "Назначено кнопок: " + nk + ".", kb);
+        }
 
         LinearLayout bgr = new LinearLayout(this);
         String bgMode = Comfort.bg(this);
@@ -1317,8 +1377,10 @@ public class HomeActivity extends Activity {
             openComfort();
         });
         section(p, "Оставаться на связи при выключенном экране", online
-                ? "Включено: экран гаснет как обычно, но телевизор не засыпает полностью — Home Assistant и Алиса до него достают. В ожидании берёт чуть больше электричества."
-                : "Выключено: в выключенном состоянии телевизор может уснуть вместе с Wi‑Fi и пропасть из Home Assistant.", onl);
+                ? "Включено: экран гаснет как обычно, но телевизор не засыпает полностью — "
+                        + (Comfort.haHome(this) ? "Home Assistant и Алиса до него достают." : "пульт в телефоне и голосовые ассистенты могут его включить.")
+                        + " В ожидании берёт чуть больше электричества."
+                : "Выключено: в выключенном состоянии телевизор может уснуть вместе с Wi‑Fi и пропасть из сети.", onl);
 
         LinearLayout tr = new LinearLayout(this);
         addAction(tr, "Сохранить", () -> bg(p, "сохраняю…", () -> Transfer.save(this), n -> {
@@ -1521,7 +1583,7 @@ public class HomeActivity extends Activity {
         if (panel != null) return;
         whatsNewAt = android.os.SystemClock.elapsedRealtime();
         Panel p = new Panel(this, "Что нового в Slauncher " + Updater.myName(this), null);
-        TextView t = infoLine(Comfort.WHATS_NEW);
+        TextView t = infoLine(Comfort.whatsNew(this));
         t.setLineSpacing(dp(4), 1f);
         p.body.addView(t);
         LinearLayout row = new LinearLayout(this);
@@ -1661,9 +1723,35 @@ public class HomeActivity extends Activity {
 
     // ---------- панели ----------
 
+    /** Цепочка открытых панелей: «Назад» возвращает на предыдущую, а не на главный экран. {панель, фокус в ней}. */
+    private final ArrayList<View[]> panelStack = new ArrayList<>();
+
+    private static String panelKey(View v) {
+        return v instanceof Panel ? "T:" + ((Panel) v).title.getText() : "#" + System.identityHashCode(v);
+    }
+
     private void showPanel(FrameLayout p, View first) {
-        closePanel();
-        beforePanel = getCurrentFocus();
+        stopLearn();
+        if (panel != null && panel != whatsPanel) {
+            // переход вглубь: текущую панель запоминаем (повторно открытый экран того же названия — обрезает цепочку до него)
+            View cur = panel;
+            String k = panelKey(p);
+            if (!panelKey(cur).equals(k)) panelStack.add(new View[]{cur, getCurrentFocus()});
+            for (int i = 0; i < panelStack.size(); i++) {
+                if (panelKey(panelStack.get(i)[0]).equals(k)) {
+                    while (panelStack.size() > i) panelStack.remove(panelStack.size() - 1);
+                    break;
+                }
+            }
+            HaSetupServer.stop();
+            Transfer.stop();
+            cur.animate().cancel();
+            root.removeView(cur);
+            panel = null;
+        } else {
+            closePanel();
+            beforePanel = getCurrentFocus();
+        }
         panel = p;
         content.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
         p.setAlpha(0f);
@@ -1675,6 +1763,8 @@ public class HomeActivity extends Activity {
     }
 
     private void closePanel() {
+        panelStack.clear();
+        stopLearn();
         HaSetupServer.stop();
         Transfer.stop();
         if (panel == null) return;
@@ -1689,6 +1779,30 @@ public class HomeActivity extends Activity {
         beforePanel = null;
         if (back != null && back.isAttachedToWindow() && back.getParent() != null) back.requestFocus();
         else focusFirstTile();
+    }
+
+    /** «Назад» в панели: на предыдущую панель цепочки, если она есть, иначе — на главный экран. */
+    private void backPanel() {
+        if (panelStack.isEmpty() || panel == whatsPanel) { closePanel(); return; }
+        View[] prev = panelStack.remove(panelStack.size() - 1);
+        stopLearn();
+        HaSetupServer.stop();
+        Transfer.stop();
+        View cur = panel;
+        cur.animate().cancel();
+        root.removeView(cur);
+        panel = (FrameLayout) prev[0];
+        prev[0].animate().cancel();
+        prev[0].setAlpha(1f);
+        if (prev[0].getParent() == null) root.addView(prev[0], match());
+        View f = prev[1];
+        if (f != null && f.getParent() != null && isInside(f, prev[0])) f.requestFocus();
+        else prev[0].requestFocus();
+    }
+
+    private static boolean isInside(View v, View parent) {
+        for (android.view.ViewParent x = v.getParent(); x != null; x = x.getParent()) if (x == parent) return true;
+        return false;
     }
 
     private static String plural(int n, String one, String few, String many) {
@@ -2210,7 +2324,11 @@ public class HomeActivity extends Activity {
         if ("series".equals(watchMode)) {
             List<Shows.Show> allPicks = Shows.picks(this), picks = new ArrayList<>();
             Map<Integer, Shows.Show> byId = new HashMap<>();
-            for (Shows.Show s : allPicks) { byId.put(s.id, s); if (s.russian() == ru) picks.add(s); }
+            java.util.Set<Integer> hid = Shows.hidden(this);
+            for (Shows.Show s : allPicks) {
+                byId.put(s.id, s);
+                if (s.russian() == ru && !hid.contains(s.id) && picks.size() < Shows.SHOW_PER_GROUP) picks.add(s); // скрытые выпали — встают следующие
+            }
             int folN = 0;
             for (Shows.Show f : Shows.followed(this)) {
                 followedIds.add(f.id);
@@ -2235,7 +2353,8 @@ public class HomeActivity extends Activity {
                 return;
             }
             List<Shows.Show> films = Shows.films(this);
-            for (Shows.Show s : films) if (s.russian() == ru) list.add(s);
+            java.util.Set<Integer> hid = Shows.hidden(this);
+            for (Shows.Show s : films) if (s.russian() == ru && !hid.contains(s.id) && list.size() < Shows.SHOW_PER_GROUP) list.add(s);
             p.count.setText(list.isEmpty() ? "" : plural(list.size(), "фильм", "фильма", "фильмов"));
             String err = Shows.filmsError(this);
             if (films.isEmpty() && !err.isEmpty()) note(p, "Не получилось загрузить фильмы: " + err, true);
@@ -2263,12 +2382,19 @@ public class HomeActivity extends Activity {
 
         if (!list.isEmpty()) {
             LinearLayout strip = p.strip();
+            watchIndexOf.clear();
+            List<View> cards = new ArrayList<>();
             for (Shows.Show s : list) {
                 View c = showCard(s, strip, followedIds.contains(s.id));
+                watchIndexOf.put(s.id, cards.size());
+                cards.add(c);
                 if (fr[0] == null) fr[0] = c;
                 if (s.id == watchFocus) fr[1] = c;
             }
+            // убрали карточку — фокус на ту, что встала на её место
+            if (fr[1] == null && watchIndex >= 0 && !cards.isEmpty()) fr[1] = cards.get(Math.min(watchIndex, cards.size() - 1));
         }
+        watchIndex = -1;
         View focus = fr[1] != null ? fr[1] : tabFocus != null ? tabFocus : "search".equals(watchMode) && searchRes != null && searchRes.isEmpty() ? q
                 : fr[0] != null ? fr[0] : tSeries;
         watchTab = null;
@@ -2299,7 +2425,7 @@ public class HomeActivity extends Activity {
                 {"1. Токен в Телеграме",
                         "• Откройте Телеграм на телефоне.\n"
                         + "• В поиске наберите  @poiskkinodev_bot  и откройте бота (poiskkino.dev, бывший kinopoisk.dev).\n"
-                        + "• Нажмите «Запустить» (Start) и следуйте подсказкам бота — он выдаст бесплатный токен.\n"
+                        + "• Нажмите «Запустить» (Start), затем в меню бота — «Демо доступ»: бот выдаст бесплатный токен.\n"
                         + "• Токен — длинная строка из латинских букв и цифр. Нажмите на неё и скопируйте."},
                 {"2. Google TV на телефоне",
                         "• Android: Google Play → «Google TV» (от Google LLC). iPhone: App Store → «Google TV».\n"
@@ -2464,6 +2590,9 @@ public class HomeActivity extends Activity {
         }
     }
 
+    private final Map<Integer, Integer> watchIndexOf = new HashMap<>();
+    private int watchIndex = -1;
+
     private void openShow(Shows.Show s) {
         watchFocus = s.id;
         Panel p = new Panel(this, s.title, s.orig.equals(s.title) ? "" : s.orig);
@@ -2529,7 +2658,7 @@ public class HomeActivity extends Activity {
             });
         }
         if (Shows.installed(this, Shows.NUM)) {
-            View n = addAction(acts, "Открыть в NUM", () -> {
+            View n = addAction(acts, "В NUM", () -> {
                 closePanel();
                 Shows.openNum(this, s, () -> Toast.makeText(this, "В NUM этот сериал по ссылке не нашёлся — открыл NUM, поищите по названию",
                         Toast.LENGTH_LONG).show());
@@ -2537,12 +2666,27 @@ public class HomeActivity extends Activity {
             if (first == null) first = n;
         }
         TextView[] follow = new TextView[1];
+        Runnable hide = () -> {
+            if (Shows.isFollowed(this, s.id)) {
+                Toast.makeText(this, "Вы следите за этим сериалом — сначала снимите «Следить»", Toast.LENGTH_LONG).show();
+                return;
+            }
+            Shows.setHidden(this, s.id, true);
+            Integer idx = watchIndexOf.get(s.id);
+            watchIndex = idx == null ? 0 : idx;
+            watchFocus = 0;
+            detailPanel = null;
+            if ("search".equals(watchMode)) watchMode = s.movie ? "films" : "series";
+            Toast.makeText(this, "«" + s.title + "» больше не покажу. Вернуть — в Настройках Slauncher → «Фильмы»", Toast.LENGTH_LONG).show();
+            openWatch();
+        };
         if (s.movie) { // за фильмами следить нечего
-            if (first == null) first = addAction(acts, "Назад", this::openWatch);
+            View h = addAction(acts, "✕ Не показывать", hide);
+            if (first == null) first = h;
         } else {
-        follow[0] = (TextView) addAction(acts, fol ? "★ Не следить" : "☆ Следить за сериями", () -> {
+        follow[0] = (TextView) addAction(acts, fol ? "★ Не следить" : "☆ Следить", () -> {
             boolean on = !Shows.isFollowed(this, s.id);
-            follow[0].setText(on ? "★ Не следить" : "☆ Следить за сериями");
+            follow[0].setText(on ? "★ Не следить" : "☆ Следить");
             if (on) {
                 epLine.setText("Проверяю даты серий…");
                 epLine.setVisibility(View.VISIBLE);
@@ -2554,6 +2698,7 @@ public class HomeActivity extends Activity {
             });
         });
         if (first == null) first = follow[0];
+        addAction(acts, "✕ Не показывать", hide);
         }
         LinearLayout.LayoutParams al = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         al.topMargin = dp(18);
@@ -2565,5 +2710,411 @@ public class HomeActivity extends Activity {
         p.body.addView(row);
         detailPanel = p;
         showPanel(p, first);
+    }
+
+    // --- Память телевизора и меню плитки
+
+    private static final long LOW_FREE = 2L * 1024 * 1024 * 1024;
+
+    private long[] storage() { // свободно, всего — байты, раздел с приложениями
+        android.os.StatFs st = new android.os.StatFs(android.os.Environment.getDataDirectory().getPath());
+        return new long[]{st.getAvailableBytes(), st.getTotalBytes()};
+    }
+
+    private void updateStorageAlert() {
+        if (storageAlert == null) return;
+        long[] s = storage();
+        boolean low = s[0] < LOW_FREE || s[0] < s[1] * 0.08;
+        if (!low) {
+            if (storageAlert.hasFocus()) focusFirstTile();
+            storageAlert.setVisibility(View.GONE);
+            return;
+        }
+        storageAlert.setText("💾  Мало места: свободно " + Comfort.gb(s[0]) + " — ОК, чтобы очистить");
+        storageAlert.setVisibility(View.VISIBLE);
+    }
+
+    /** «Память телевизора»: сколько свободно, сколько занимает кеш приложений, очистить одной кнопкой. */
+    private void openStorage() {
+        long[] st = storage();
+        Panel p = new Panel(this, "Память телевизора", "Кеш — временные файлы приложений (превью, куски видео). "
+                + "Удалять его безопасно: приложения скачают нужное заново.");
+        p.count.setText("свободно " + Comfort.gb(st[0]) + " из " + Comfort.gb(st[1]));
+        TextView info = infoLine(Adb.known(this) ? "Считаю кеш приложений…" : "");
+        info.setTextSize(16);
+        LinearLayout.LayoutParams il = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        il.topMargin = dp(12);
+        p.body.addView(info, il);
+        LinearLayout row = new LinearLayout(this);
+        View first;
+        if (Adb.known(this)) {
+            first = addAction(row, "Очистить кеш приложений", () -> {
+                info.setText("Чищу…");
+                long before = storage()[0];
+                new Thread(() -> {
+                    String err = null;
+                    try { Adb.sh(this, "pm trim-caches 999G"); } catch (Exception e) { err = e.getMessage(); }
+                    long gain = Math.max(0, storage()[0] - before);
+                    String fe = err;
+                    runOnUiThread(() -> {
+                        updateStorageAlert();
+                        if (panel != p) return;
+                        info.setText(fe != null ? "Не получилось: " + fe
+                                : "Готово: освобождено " + Comfort.gb(gain) + ", свободно " + Comfort.gb(storage()[0]));
+                        p.count.setText("свободно " + Comfort.gb(storage()[0]) + " из " + Comfort.gb(st[1]));
+                    });
+                }).start();
+            });
+            new Thread(() -> {
+                long cache = -1;
+                try {
+                    java.util.regex.Matcher m = java.util.regex.Pattern.compile("App Cache Size: (\\d+)")
+                            .matcher(Adb.sh(this, "dumpsys diskstats | grep 'App Cache Size'"));
+                    if (m.find()) cache = Long.parseLong(m.group(1));
+                } catch (Exception e) { Net.log("diskstats", e); }
+                long c = cache;
+                runOnUiThread(() -> {
+                    if (panel == p && info.getText().toString().startsWith("Считаю"))
+                        info.setText(c >= 0 ? "Кеш приложений занимает " + Comfort.gb(c) + "." : "");
+                });
+            }).start();
+        } else {
+            info.setText("Чтобы чистить одной кнопкой, нужна «Оптимизация» (Настройки Slauncher → Система). "
+                    + "Пока можно очистить в настройках телевизора.");
+            first = addAction(row, "Открыть хранилище", () -> {
+                closePanel();
+                try { startActivity(new Intent(android.provider.Settings.ACTION_INTERNAL_STORAGE_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); }
+                catch (Exception e) { Toast.makeText(this, "На этом телевизоре такого экрана нет", Toast.LENGTH_SHORT).show(); }
+            });
+        }
+        addAction(row, "Закрыть", this::closePanel);
+        LinearLayout.LayoutParams rl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rl.topMargin = dp(16);
+        p.body.addView(row, rl);
+        showPanel(p, first);
+    }
+
+    /** Долгое ОК на плитке приложения: открыть, закрыть зависшее, очистить кеш, переставить, убрать. */
+    private void openTileMenu(Apps.App app) {
+        Panel p = new Panel(this, app.label, "Что сделать с приложением");
+        LinearLayout row = new LinearLayout(this);
+        View first = addAction(row, "Открыть", () -> { closePanel(); launch(app); });
+        addAction(row, "Закрыть", () -> {
+            closePanel();
+            new Thread(() -> {
+                boolean ok = false;
+                try {
+                    if (Adb.known(this)) { Adb.sh(this, "am force-stop " + app.pkg); ok = true; }
+                    else {
+                        ((android.app.ActivityManager) getSystemService(ACTIVITY_SERVICE)).killBackgroundProcesses(app.pkg);
+                        ok = true;
+                    }
+                } catch (Exception e) { Net.log("force-stop", e); }
+                boolean fok = ok;
+                runOnUiThread(() -> Toast.makeText(this, fok ? "«" + app.label + "» закрыто — в следующий раз откроется заново"
+                        : "Не получилось закрыть «" + app.label + "»", Toast.LENGTH_SHORT).show());
+            }).start();
+        });
+        addAction(row, "Очистить кеш", () -> {
+            closePanel();
+            Toast.makeText(this, "Откроется страница приложения — там «Очистить кеш»", Toast.LENGTH_LONG).show();
+            try {
+                startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        android.net.Uri.parse("package:" + app.pkg)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            } catch (Exception e) { Toast.makeText(this, "На этом телевизоре такого экрана нет", Toast.LENGTH_SHORT).show(); }
+        });
+        addAction(row, "Переместить", () -> startMove(app.pkg));
+        addAction(row, "Убрать с главного", () -> {
+            List<String> d = apps.dockPackages();
+            d.remove(app.pkg);
+            apps.saveDock(d);
+            closePanel();
+            reloadApps();
+        });
+        LinearLayout.LayoutParams rl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rl.topMargin = dp(14);
+        p.body.addView(row, rl);
+        showPanel(p, first);
+    }
+
+    // ---------- кнопки пульта ----------
+
+    private Runnable learnTimeout;
+
+    private void stopLearn() {
+        if (HomeKeyService.learner == null && learnTimeout == null) return;
+        HomeKeyService.learner = null;
+        if (learnTimeout != null) { content.removeCallbacks(learnTimeout); learnTimeout = null; }
+        HomeKeyService.refresh();
+    }
+
+    /** Список назначенных кнопок + «Добавить кнопку». */
+    private void openKeys() {
+        Panel p = new Panel(this, "Кнопки пульта", "Своё действие на любую кнопку пульта — по нажатию и по долгому нажатию. "
+                + "Быстрее: зажмите свободную кнопку на 5 секунд в любом месте. Стрелки, ОК, «Назад», громкость и питание не меняются.");
+        List<Keys.Bind> list = Keys.all(this);
+        p.count.setText(list.isEmpty() ? "" : "назначено: " + list.size());
+        View first = null;
+        if (HomeKeyService.inst == null) {
+            LinearLayout a = new LinearLayout(this);
+            first = addAction(a, "Открыть спецвозможности", () -> {
+                closePanel();
+                try { startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); }
+                catch (Exception ignored) { }
+            });
+            section(p, "Нужна служба Slauncher", "Включите: Специальные возможности → «Slauncher: кнопка «Домой»». "
+                    + "Через неё Slauncher видит нажатия пульта.", a);
+        }
+        for (Keys.Bind b : list) {
+            LinearLayout a = new LinearLayout(this);
+            View e = addAction(a, "Изменить", () -> openKeyBind(b));
+            addAction(a, "Удалить", () -> { Keys.remove(this, b.id); openKeys(); });
+            if (first == null) first = e;
+            section(p, b.name, "Нажатие → " + Keys.label(this, b.tap)
+                    + (b.hold != null ? ".   Долгое → " + Keys.label(this, b.hold) : "") + ".", a);
+        }
+        LinearLayout row = new LinearLayout(this);
+        View add = addAction(row, "Добавить кнопку", this::learnKey);
+        addAction(row, "Закрыть", this::closePanel);
+        LinearLayout.LayoutParams rl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rl.topMargin = dp(18);
+        p.body.addView(row, rl);
+        showPanel(p, HomeKeyService.inst == null ? first : list.isEmpty() ? add : first);
+    }
+
+    /** «Нажмите кнопку на пульте» — ловим первое нажатие (10 с). */
+    private void learnKey() {
+        if (HomeKeyService.inst == null) { openKeys(); return; }
+        Panel p = new Panel(this, "Нажмите кнопку на пульте", "Ту, которую хотите переназначить — например, Netflix, YouTube или цветную.");
+        TextView info = infoLine("Жду нажатия…");
+        info.setTextSize(20);
+        LinearLayout.LayoutParams il = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        il.topMargin = dp(10);
+        p.body.addView(info, il);
+        LinearLayout row = new LinearLayout(this);
+        View cancel = addAction(row, "Отмена", this::openKeys);
+        LinearLayout.LayoutParams rl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rl.topMargin = dp(18);
+        p.body.addView(row, rl);
+        showPanel(p, cancel);
+        HomeKeyService.learner = e -> {
+            if (panel != p) return;
+            if (Keys.forbidden(e.getKeyCode())) {
+                if (e.getKeyCode() != KeyEvent.KEYCODE_DPAD_CENTER && e.getKeyCode() != KeyEvent.KEYCODE_ENTER)
+                    info.setText("«" + Keys.name(e) + "» переназначать нельзя — нажмите другую кнопку");
+                return;
+            }
+            String id = Keys.id(e);
+            String name = Keys.name(e);
+            stopLearn();
+            Keys.Bind b = Keys.get(this, id);
+            if (b == null) { b = new Keys.Bind(id, name); pickKeyAction(b, false, true); }
+            else openKeyBind(b);
+        };
+        HomeKeyService.refresh();
+        learnTimeout = () -> {
+            learnTimeout = null;
+            if (panel != p) return;
+            HomeKeyService.learner = null;
+            HomeKeyService.refresh();
+            info.setText("Ничего не поймал. Похоже, эту кнопку телевизор обрабатывает сам и не отдаёт — её переназначить не выйдет.");
+            row.removeAllViews();
+            View again = addAction(row, "Ещё раз", this::learnKey);
+            addAction(row, "Назад", this::openKeys);
+            again.requestFocus();
+        };
+        content.postDelayed(learnTimeout, 10_000);
+    }
+
+    /** Выбор действия: на нажатие или на долгое нажатие. fresh — кнопку только что поймали. */
+    private void pickKeyAction(Keys.Bind b, boolean hold, boolean fresh) {
+        Panel p = new Panel(this, b.name + (hold ? " — долгое нажатие" : " — нажатие"), "Что открывать этой кнопкой?").tall();
+        String cur = hold ? b.hold : b.tap;
+        View first = null;
+        rowHead(p, "Приложения");
+        LinearLayout apps = p.strip();
+        List<Apps.App> list = new ArrayList<>(dock);
+        for (Apps.App a : allApps) if (!list.contains(a)) list.add(a);
+        for (Apps.App a : list) {
+            if (Apps.SETTINGS.equals(a.pkg)) continue;
+            String act = "app:" + a.pkg;
+            View v = addAction(apps, (act.equals(cur) ? "✓ " : "") + a.label, () -> setKeyAction(b, hold, act));
+            if (first == null || act.equals(cur)) first = v;
+        }
+        rowHead(p, "Действия Slauncher");
+        LinearLayout acts = p.strip();
+        if (hold) {
+            View v = addAction(acts, (cur == null ? "✓ " : "") + "Ничего", () -> { b.hold = null; Keys.save(this, b); openKeyBind(b); });
+            if (cur == null) first = v;
+        }
+        for (String[] a : Keys.ACTIONS) {
+            View v = addAction(acts, (a[0].equals(cur) ? "✓ " : "") + a[1], () -> setKeyAction(b, hold, a[0]));
+            if (first == null || a[0].equals(cur)) first = v;
+        }
+        LinearLayout row = new LinearLayout(this);
+        addAction(row, "Отмена", () -> { if (fresh) openKeys(); else openKeyBind(b); });
+        LinearLayout.LayoutParams rl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rl.topMargin = dp(10);
+        p.body.addView(row, rl);
+        p.count.setText("приложений: " + apps.getChildCount() + " — листайте стрелками");
+        showPanel(p, first);
+    }
+
+    /** Подзаголовок над лентой кнопок. */
+    private void rowHead(Panel p, String text) {
+        TextView h = Ui.text(this, 12, 600, 0x80FFFFFF);
+        h.setShadowLayer(0, 0, 0, 0);
+        h.setLetterSpacing(0.12f);
+        h.setText(text.toUpperCase(new Locale("ru")));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(p.body.getChildCount() == 0 ? 0 : 10);
+        p.body.addView(h, lp);
+    }
+
+    private void setKeyAction(Keys.Bind b, boolean hold, String a) {
+        if (hold) b.hold = a; else b.tap = a;
+        Keys.save(this, b);
+        openKeyBind(b);
+    }
+
+    /** Карточка одной кнопки: что назначено, поменять, долгое нажатие, удалить. */
+    private void openKeyBind(Keys.Bind b) {
+        Panel p = new Panel(this, b.name, "Готово — нажмите эту кнопку на пульте, чтобы проверить.");
+        LinearLayout t = new LinearLayout(this);
+        View first = addAction(t, "Изменить", () -> pickKeyAction(b, false, false));
+        section(p, "Нажатие", Keys.label(this, b.tap), t);
+        LinearLayout h = new LinearLayout(this);
+        addAction(h, b.hold == null ? "Назначить…" : "Изменить", () -> pickKeyAction(b, true, false));
+        section(p, "Долгое нажатие", b.hold == null ? "Не назначено — можно повесить второе действие." : Keys.label(this, b.hold), h);
+        LinearLayout row = new LinearLayout(this);
+        addAction(row, "Готово", this::openKeys);
+        addAction(row, "Удалить", () -> { Keys.remove(this, b.id); openKeys(); });
+        LinearLayout.LayoutParams rl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rl.topMargin = dp(18);
+        p.body.addView(row, rl);
+        showPanel(p, first);
+    }
+
+    // ---------- лишние приложения ----------
+
+    private void openJunk() {
+        Panel p = new Panel(this, "Лишние приложения", "Всё, чего нет на главном экране. ОК — отметить, потом «Убрать». "
+                + "Стороннее удаляется (установщик сохраняется в Download/Slauncher/apps), встроенное выключается. "
+                + "Важное для работы телевизора здесь не показывается.").tall();
+        boolean adb = Adb.known(this);
+        ScrollView sv = new ScrollView(this);
+        sv.setVerticalScrollBarEnabled(false);
+        sv.setClipChildren(false);
+        sv.setClipToPadding(false);
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        list.setPadding(dp(6), dp(4), dp(6), dp(4));
+        sv.addView(list);
+        p.body.addView(sv, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(300)));
+        LinearLayout row = new LinearLayout(this);
+        LinearLayout.LayoutParams rl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rl.topMargin = dp(14);
+        p.body.addView(row, rl);
+        View close = addAction(row, "Закрыть", this::closePanel);
+        showPanel(p, close);
+        p.count.setText("считаю…");
+        List<String> dockPk = apps.dockPackages();
+        List<Apps.App> all = new ArrayList<>(allApps);
+        bg(p, "считаю…", () -> Junk.list(this, all, dockPk), items -> {
+            if (panel != p) return;
+            java.util.Set<String> marked = new java.util.HashSet<>();
+            row.removeAllViews();
+            TextView[] go = new TextView[1];
+            if (adb && !items.isEmpty()) {
+                go[0] = (TextView) addAction(row, "Убрать отмеченные", () -> removeJunk(p, items, marked));
+            }
+            int nr = Junk.removed(this).length();
+            if (adb && nr > 0) addAction(row, "Вернуть всё как было (" + nr + ")", () -> bg(p, "возвращаю…", () -> Junk.restoreAll(this), n -> {
+                Toast.makeText(this, "Вернул: " + n, Toast.LENGTH_LONG).show();
+                reloadApps();
+                openJunk();
+            }));
+            View cl = addAction(row, "Закрыть", this::closePanel);
+            long total = 0;
+            for (Junk.Item it : items) total += it.size;
+            p.count.setText(items.isEmpty() ? "лишнего нет" : items.size() + " шт., " + Comfort.gb(total));
+            if (!adb) note(p, "Чтобы убирать, нужна «Оптимизация» (Настройки Slauncher → Система → Подключить).", true);
+            if (items.isEmpty()) {
+                TextView t = infoLine("Всё, что установлено, — на главном экране. Убирать нечего 👌");
+                list.addView(t);
+                cl.requestFocus();
+                return;
+            }
+            View first = null;
+            for (Junk.Item it : items) {
+                View r = junkRow(it, marked, go);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                lp.bottomMargin = dp(8);
+                list.addView(r, lp);
+                if (first == null) first = r;
+            }
+            first.requestFocus();
+        });
+    }
+
+    private View junkRow(Junk.Item it, java.util.Set<String> marked, TextView[] go) {
+        LinearLayout r = new LinearLayout(this);
+        r.setOrientation(LinearLayout.HORIZONTAL);
+        r.setGravity(Gravity.CENTER_VERTICAL);
+        r.setPadding(dp(14), dp(8), dp(14), dp(8));
+        Panel.cardStyle(r, 14);
+        ImageView ic = new ImageView(this);
+        if (it.icon != null) ic.setImageDrawable(it.icon);
+        r.addView(ic, new LinearLayout.LayoutParams(dp(36), dp(36)));
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        TextView name = Ui.text(this, 17, 500, 0xFFFFFFFF);
+        name.setShadowLayer(0, 0, 0, 0);
+        name.setText(it.label);
+        col.addView(name);
+        TextView info = Ui.text(this, 13, 400, 0xB3FFFFFF);
+        info.setShadowLayer(0, 0, 0, 0);
+        info.setText(Junk.usedText(it.lastUsed) + "  ·  " + Comfort.gb(it.size) + "  ·  " + (it.system ? "встроенное — выключится" : "удалится, установщик сохранится"));
+        col.addView(info);
+        LinearLayout.LayoutParams cl = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        cl.leftMargin = dp(14);
+        r.addView(col, cl);
+        TextView box = Ui.text(this, 22, 500, 0xFFFFFFFF);
+        box.setShadowLayer(0, 0, 0, 0);
+        box.setText("○");
+        r.addView(box);
+        r.setOnClickListener(v -> {
+            boolean on = !marked.remove(it.pkg);
+            if (on) marked.add(it.pkg);
+            box.setText(on ? "✓" : "○");
+            box.setTextColor(on ? 0xFF34C759 : 0xFFFFFFFF);
+            if (go[0] != null) go[0].setText(marked.isEmpty() ? "Убрать отмеченные" : "Убрать отмеченные (" + marked.size() + ")");
+        });
+        return r;
+    }
+
+    private void removeJunk(Panel p, List<Junk.Item> items, java.util.Set<String> marked) {
+        if (marked.isEmpty()) { Toast.makeText(this, "Сначала отметьте приложения — ОК на строке", Toast.LENGTH_SHORT).show(); return; }
+        List<Junk.Item> todo = new ArrayList<>();
+        for (Junk.Item it : items) if (marked.contains(it.pkg)) todo.add(it);
+        p.count.setText("убираю…");
+        new Thread(() -> {
+            int ok = 0;
+            StringBuilder err = new StringBuilder();
+            for (int i = 0; i < todo.size(); i++) {
+                Junk.Item it = todo.get(i);
+                int n = i + 1;
+                runOnUiThread(() -> { if (panel == p) p.count.setText("убираю " + n + " из " + todo.size() + "…"); });
+                String e = Junk.remove(this, it);
+                if (e == null) ok++;
+                else err.append(it.label).append(": ").append(e).append("\n");
+            }
+            int fok = ok;
+            runOnUiThread(() -> {
+                Toast.makeText(this, "Убрано: " + fok + (err.length() > 0 ? ". Не вышло: " + err.toString().trim() : ""), Toast.LENGTH_LONG).show();
+                reloadApps();
+                if (panel == p) openJunk();
+            });
+        }).start();
     }
 }
