@@ -50,6 +50,19 @@ final class Keys {
         }
     }
 
+    /** Можно ли предлагать назначение по долгому удержанию: не навигация и не то, что держат специально (перемотка, каналы). */
+    static boolean offerable(int kc) {
+        if (forbidden(kc)) return false;
+        switch (kc) {
+            case KeyEvent.KEYCODE_MEDIA_REWIND: case KeyEvent.KEYCODE_MEDIA_FAST_FORWARD:
+            case KeyEvent.KEYCODE_CHANNEL_UP: case KeyEvent.KEYCODE_CHANNEL_DOWN:
+            case KeyEvent.KEYCODE_PAGE_UP: case KeyEvent.KEYCODE_PAGE_DOWN:
+            case KeyEvent.KEYCODE_DEL: case KeyEvent.KEYCODE_FORWARD_DEL: case KeyEvent.KEYCODE_SPACE:
+                return false;
+        }
+        return !(kc >= KeyEvent.KEYCODE_A && kc <= KeyEvent.KEYCODE_Z); // клавиатура
+    }
+
     /** Человеческое название кнопки. */
     static String name(KeyEvent e) {
         int kc = e.getKeyCode();

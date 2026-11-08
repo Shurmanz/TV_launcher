@@ -166,6 +166,15 @@ public class HomeActivity extends Activity {
         if ("watch".equals(open)) openWatchFresh();
         else if ("inputs".equals(open)) openInputs();
         else if ("keys".equals(open)) openKeys();
+        else if (open != null && open.startsWith("bindkey:")) { // зажали свободную кнопку пульта на 5 с
+            String id = open.substring(8);
+            Keys.Bind b = Keys.get(this, id);
+            if (b != null) openKeyBind(b);
+            else {
+                String n = intent.getStringExtra("keyname");
+                pickKeyAction(new Keys.Bind(id, n == null ? "Кнопка" : n), false, true);
+            }
+        }
         else if ("tokenhelp".equals(open)) openTokenHelp();
         else if (open != null && open.startsWith("show:")) {
             int id = Integer.parseInt(open.substring(5));
@@ -2783,7 +2792,7 @@ public class HomeActivity extends Activity {
     /** Список назначенных кнопок + «Добавить кнопку». */
     private void openKeys() {
         Panel p = new Panel(this, "Кнопки пульта", "Своё действие на любую кнопку пульта — по нажатию и по долгому нажатию. "
-                + "Стрелки, ОК, «Назад», громкость и питание не меняются.");
+                + "Быстрее: зажмите свободную кнопку на 5 секунд в любом месте. Стрелки, ОК, «Назад», громкость и питание не меняются.");
         List<Keys.Bind> list = Keys.all(this);
         p.count.setText(list.isEmpty() ? "" : "назначено: " + list.size());
         View first = null;

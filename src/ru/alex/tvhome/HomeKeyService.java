@@ -41,7 +41,7 @@ public class HomeKeyService extends AccessibilityService {
         try {
             android.accessibilityservice.AccessibilityServiceInfo i = getServiceInfo();
             if (i == null) return;
-            boolean want = learner != null || Keys.any(this);
+            boolean want = true; // всегда: зажатая на 5 с свободная кнопка предлагает назначить действие
             int f = want ? i.flags | android.accessibilityservice.AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS
                     : i.flags & ~android.accessibilityservice.AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS;
             if (f != i.flags) {
@@ -61,6 +61,34 @@ public class HomeKeyService extends AccessibilityService {
         Keys.run(this, b.hold);
     };
 
+    /** Свободную кнопку держат 5 с — открыть «Что назначить на эту кнопку?». Нажатие при этом проходит как обычно. */
+    private String offerId, offerName;
+    private final Runnable offerTask = () -> {
+        String id = offerId;
+        offerId = null;
+        if (id == null || learner != null) return;
+        Intent i = new Intent(this, HomeActivity.class);
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NO_ANIMATION);
+        i.putExtra("open", "bindkey:" + id);
+        i.putExtra("keyname", offerName);
+        startActivity(i);
+    };
+
+    private void watchHold(android.view.KeyEvent e) {
+        if (!Keys.offerable(e.getKeyCode())) return;
+        String id = Keys.id(e);
+        if (e.getAction() == android.view.KeyEvent.ACTION_DOWN) {
+            if (e.getRepeatCount() > 0 && id.equals(offerId)) return;
+            offerId = id;
+            offerName = Keys.name(e);
+            main.removeCallbacks(offerTask);
+            main.postDelayed(offerTask, 5000);
+        } else if (e.getAction() == android.view.KeyEvent.ACTION_UP && id.equals(offerId)) {
+            main.removeCallbacks(offerTask);
+            offerId = null;
+        }
+    }
+
     @Override
     protected boolean onKeyEvent(android.view.KeyEvent e) {
         int kc = e.getKeyCode();
@@ -71,7 +99,7 @@ public class HomeKeyService extends AccessibilityService {
         }
         if (Keys.forbidden(kc)) return false;
         Keys.Bind b = Keys.get(this, Keys.id(e));
-        if (b == null) return false;
+        if (b == null) { watchHold(e); return false; }
         if (e.getAction() == android.view.KeyEvent.ACTION_DOWN) {
             if (e.getRepeatCount() > 0) return true;
             if (b.hold == null) { main.post(() -> Keys.run(this, b.tap)); return true; }
