@@ -137,6 +137,38 @@ final class Weather {
         }
     }
 
+    /**
+     * Предупреждение, только когда есть повод: гололёд, сильный мороз или жара, сильный ветер, сильные осадки
+     * на сегодня–завтра. В обычные дни — пустая строка.
+     */
+    String alert() {
+        long now = System.currentTimeMillis();
+        // гололёд: осадки около нуля или подмораживает после осадков (почасовой прогноз ~сутки)
+        boolean wasWet = false;
+        for (Hour h : hours) {
+            if (h.time <= now) continue;
+            if (h.precip > 0.1 && h.temp > -3 && h.temp < 1.5) return "Возможен гололёд " + when(h.time);
+            if (h.precip > 0.1 && h.temp > 0) wasWet = true;
+            if (wasWet && h.temp < -0.5) return "Гололёд: после осадков подморозит " + when(h.time);
+        }
+        for (int i = 0; i < Math.min(2, days.size()); i++) {
+            Day d = days.get(i);
+            String w = i == 0 ? "сегодня" : "завтра";
+            if (d.min <= -20) return "Сильный мороз " + w + ": до " + temp(d.min);
+            if (d.max >= 30) return "Жара " + w + ": до " + temp(d.max);
+            if (d.wind >= 12) return "Сильный ветер " + w + ": до " + Math.round(d.wind) + " м/с";
+            if (d.precip >= 10) return (d.min < 0 && d.max <= 1 ? "Сильный снег " : "Сильный дождь ") + w;
+        }
+        return "";
+    }
+
+    private static String when(long t) {
+        Calendar a = Calendar.getInstance(), n = Calendar.getInstance();
+        a.setTimeInMillis(t);
+        boolean today = a.get(Calendar.DAY_OF_YEAR) == n.get(Calendar.DAY_OF_YEAR);
+        return (today ? "сегодня к " : "завтра к ") + new SimpleDateFormat("HH:mm", Locale.US).format(t);
+    }
+
     /** Коротко о ближайших часах: «к 21:00 дождь», «к 15:00 без осадков», «ночью +2°». */
     String hint() {
         if (hours.size() < 3) return "";

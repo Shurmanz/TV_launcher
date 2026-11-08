@@ -51,7 +51,7 @@ public class HomeActivity extends Activity {
     private View nightDim;
     private GlowView glow;
     private ClockView clock;
-    private TextView weatherBtn, netLabel, moveHint, tip, newEps;
+    private TextView weatherBtn, netLabel, moveHint, tip, newEps, storageAlert;
     private LinearLayout updBar;
     private FrameLayout captionBox;
     private TextView sleepInfo;
@@ -113,6 +113,7 @@ public class HomeActivity extends Activity {
         HaClient.ensure(this);
         updateTip(true);
         updateNewEps();
+        updateStorageAlert();
         Shows.refresh(this, this::updateNewEps);
         root.removeCallbacks(sleepTick);
         sleepTick.run();
@@ -247,12 +248,18 @@ public class HomeActivity extends Activity {
         });
         weatherBtn.setOnClickListener(v -> openWeather());
         clock = new ClockView(this, 58, weatherBtn);
+        // предупреждение о погоде — только когда есть повод
+        TextView walert = Ui.text(this, 15, 600, 0xFFFFC94D);
+        walert.setPadding(dp(14), 0, dp(14), dp(4));
+        walert.setVisibility(View.GONE);
+        clock.alert = walert;
         clock.setNightListener(this::applyNight);
         wall.addListener(clock);
         left.addView(clock, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         LinearLayout.LayoutParams wl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         wl.setMargins(-dp(14), -dp(8), 0, 0); // строка погоды ближе к часам
         left.addView(weatherBtn, wl);
+        left.addView(walert);
         FrameLayout.LayoutParams ll = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP | Gravity.START);
         ll.setMargins(dp(64), dp(38), 0, 0);
@@ -306,6 +313,24 @@ public class HomeActivity extends Activity {
         LinearLayout.LayoutParams nel = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         nel.topMargin = dp(10);
         left.addView(newEps, nel);
+
+        // «Мало места» — только когда свободно меньше 2 ГБ или 8 %; ОК — экран «Память телевизора»
+        storageAlert = Ui.text(this, 15, 500, 0xFFFFFFFF);
+        storageAlert.setShadowLayer(0, 0, 0, 0);
+        storageAlert.setPadding(dp(16), dp(8), dp(18), dp(8));
+        storageAlert.setFocusable(true);
+        storageAlert.setVisibility(View.GONE);
+        storageAlert.setBackground(Ui.round(0xCC1C1C1E, dp(100), dp(1.5f), 0xFFFF9F0A));
+        storageAlert.setOnFocusChangeListener((v, has) -> {
+            v.setBackground(Ui.round(has ? 0xFFFF9F0A : 0xCC1C1C1E, dp(100), has ? 0 : dp(1.5f), 0xFFFF9F0A));
+            storageAlert.setTextColor(has ? 0xFF111111 : 0xFFFFFFFF);
+            Ui.focusScale(v, has, 1.04f);
+            if (has) glow.hide();
+        });
+        storageAlert.setOnClickListener(v -> openStorage());
+        LinearLayout.LayoutParams sal = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        sal.topMargin = dp(10);
+        left.addView(storageAlert, sal);
 
         // --- плитки: по 5 в строке, лишние — ниже, с прокруткой
         int sw = getResources().getDisplayMetrics().widthPixels;
@@ -564,7 +589,7 @@ public class HomeActivity extends Activity {
             v.postDelayed(() -> launch(app), 170);
         });
         card.setOnLongClickListener(v -> {
-            if (moving == null) openLibrary(app);
+            if (moving == null) { if (app == null) openLibrary(null); else openTileMenu(app); }
             return true;
         });
         return cell;
@@ -1297,9 +1322,12 @@ public class HomeActivity extends Activity {
                     + "Свободно " + Comfort.gb(r[1]) + " из " + Comfort.gb(r[2]), Toast.LENGTH_LONG).show();
             openComfort();
         }));
+        addAction(sl, "Место и кеш", this::openStorage);
         int left = Comfort.sleepLeftMin(this);
+        long[] stg = storage();
         section(p, "Сон и память", (left > 0 ? "Выключение через " + left + " мин.  " : "")
-                + "Свободно " + Comfort.gb(Comfort.availMem(this)) + " из " + Comfort.gb(Comfort.totalMem(this)) + ".", sl);
+                + "Оперативная: свободно " + Comfort.gb(Comfort.availMem(this)) + " из " + Comfort.gb(Comfort.totalMem(this))
+                + ".  Место: свободно " + Comfort.gb(stg[0]) + ".", sl);
 
         LinearLayout st = new LinearLayout(this);
         addAction(st, "Выбрать…", this::openStartPicker);
@@ -2603,6 +2631,131 @@ public class HomeActivity extends Activity {
         row.addView(col, cl);
         p.body.addView(row);
         detailPanel = p;
+        showPanel(p, first);
+    }
+
+    // --- Память телевизора и меню плитки
+
+    private static final long LOW_FREE = 2L * 1024 * 1024 * 1024;
+
+    private long[] storage() { // свободно, всего — байты, раздел с приложениями
+        android.os.StatFs st = new android.os.StatFs(android.os.Environment.getDataDirectory().getPath());
+        return new long[]{st.getAvailableBytes(), st.getTotalBytes()};
+    }
+
+    private void updateStorageAlert() {
+        if (storageAlert == null) return;
+        long[] s = storage();
+        boolean low = s[0] < LOW_FREE || s[0] < s[1] * 0.08;
+        if (!low) {
+            if (storageAlert.hasFocus()) focusFirstTile();
+            storageAlert.setVisibility(View.GONE);
+            return;
+        }
+        storageAlert.setText("💾  Мало места: свободно " + Comfort.gb(s[0]) + " — ОК, чтобы очистить");
+        storageAlert.setVisibility(View.VISIBLE);
+    }
+
+    /** «Память телевизора»: сколько свободно, сколько занимает кеш приложений, очистить одной кнопкой. */
+    private void openStorage() {
+        long[] st = storage();
+        Panel p = new Panel(this, "Память телевизора", "Кеш — временные файлы приложений (превью, куски видео). "
+                + "Удалять его безопасно: приложения скачают нужное заново.");
+        p.count.setText("свободно " + Comfort.gb(st[0]) + " из " + Comfort.gb(st[1]));
+        TextView info = infoLine(Adb.known(this) ? "Считаю кеш приложений…" : "");
+        info.setTextSize(16);
+        LinearLayout.LayoutParams il = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        il.topMargin = dp(12);
+        p.body.addView(info, il);
+        LinearLayout row = new LinearLayout(this);
+        View first;
+        if (Adb.known(this)) {
+            first = addAction(row, "Очистить кеш приложений", () -> {
+                info.setText("Чищу…");
+                long before = storage()[0];
+                new Thread(() -> {
+                    String err = null;
+                    try { Adb.sh(this, "pm trim-caches 999G"); } catch (Exception e) { err = e.getMessage(); }
+                    long gain = Math.max(0, storage()[0] - before);
+                    String fe = err;
+                    runOnUiThread(() -> {
+                        updateStorageAlert();
+                        if (panel != p) return;
+                        info.setText(fe != null ? "Не получилось: " + fe
+                                : "Готово: освобождено " + Comfort.gb(gain) + ", свободно " + Comfort.gb(storage()[0]));
+                        p.count.setText("свободно " + Comfort.gb(storage()[0]) + " из " + Comfort.gb(st[1]));
+                    });
+                }).start();
+            });
+            new Thread(() -> {
+                long cache = -1;
+                try {
+                    java.util.regex.Matcher m = java.util.regex.Pattern.compile("App Cache Size: (\\d+)")
+                            .matcher(Adb.sh(this, "dumpsys diskstats | grep 'App Cache Size'"));
+                    if (m.find()) cache = Long.parseLong(m.group(1));
+                } catch (Exception e) { Net.log("diskstats", e); }
+                long c = cache;
+                runOnUiThread(() -> {
+                    if (panel == p && info.getText().toString().startsWith("Считаю"))
+                        info.setText(c >= 0 ? "Кеш приложений занимает " + Comfort.gb(c) + "." : "");
+                });
+            }).start();
+        } else {
+            info.setText("Чтобы чистить одной кнопкой, нужна «Оптимизация» (Настройки Slauncher → Система). "
+                    + "Пока можно очистить в настройках телевизора.");
+            first = addAction(row, "Открыть хранилище", () -> {
+                closePanel();
+                try { startActivity(new Intent(android.provider.Settings.ACTION_INTERNAL_STORAGE_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); }
+                catch (Exception e) { Toast.makeText(this, "На этом телевизоре такого экрана нет", Toast.LENGTH_SHORT).show(); }
+            });
+        }
+        addAction(row, "Закрыть", this::closePanel);
+        LinearLayout.LayoutParams rl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rl.topMargin = dp(16);
+        p.body.addView(row, rl);
+        showPanel(p, first);
+    }
+
+    /** Долгое ОК на плитке приложения: открыть, закрыть зависшее, очистить кеш, переставить, убрать. */
+    private void openTileMenu(Apps.App app) {
+        Panel p = new Panel(this, app.label, "Что сделать с приложением");
+        LinearLayout row = new LinearLayout(this);
+        View first = addAction(row, "Открыть", () -> { closePanel(); launch(app); });
+        addAction(row, "Закрыть", () -> {
+            closePanel();
+            new Thread(() -> {
+                boolean ok = false;
+                try {
+                    if (Adb.known(this)) { Adb.sh(this, "am force-stop " + app.pkg); ok = true; }
+                    else {
+                        ((android.app.ActivityManager) getSystemService(ACTIVITY_SERVICE)).killBackgroundProcesses(app.pkg);
+                        ok = true;
+                    }
+                } catch (Exception e) { Net.log("force-stop", e); }
+                boolean fok = ok;
+                runOnUiThread(() -> Toast.makeText(this, fok ? "«" + app.label + "» закрыто — в следующий раз откроется заново"
+                        : "Не получилось закрыть «" + app.label + "»", Toast.LENGTH_SHORT).show());
+            }).start();
+        });
+        addAction(row, "Очистить кеш", () -> {
+            closePanel();
+            Toast.makeText(this, "Откроется страница приложения — там «Очистить кеш»", Toast.LENGTH_LONG).show();
+            try {
+                startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        android.net.Uri.parse("package:" + app.pkg)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            } catch (Exception e) { Toast.makeText(this, "На этом телевизоре такого экрана нет", Toast.LENGTH_SHORT).show(); }
+        });
+        addAction(row, "Переместить", () -> startMove(app.pkg));
+        addAction(row, "Убрать с главного", () -> {
+            List<String> d = apps.dockPackages();
+            d.remove(app.pkg);
+            apps.saveDock(d);
+            closePanel();
+            reloadApps();
+        });
+        LinearLayout.LayoutParams rl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rl.topMargin = dp(14);
+        p.body.addView(row, rl);
         showPanel(p, first);
     }
 }

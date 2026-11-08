@@ -100,10 +100,18 @@ final class ClockView extends LinearLayout implements WallpaperView.Listener {
     @Override protected void onAttachedToWindow() { super.onAttachedToWindow(); tick.run(); }
     @Override protected void onDetachedFromWindow() { ui.removeCallbacks(tick); super.onDetachedFromWindow(); }
 
+    /** Строка-предупреждение о погоде под погодой (гололёд, мороз, ветер…); пустая — скрыта. */
+    android.widget.TextView alert;
+
     @Override public void onWeather(Weather w) {
         lastWeather = w;
         if (weather == null || w == null) return;
         String h = w.hint();
         weather.setText(w.describe() + (h.isEmpty() ? "" : "  ·  " + h));
+        if (alert != null) {
+            String a = w.alert();
+            alert.setText(a.isEmpty() ? "" : "⚠  " + a);
+            alert.setVisibility(a.isEmpty() ? GONE : VISIBLE);
+        }
     }
 }
