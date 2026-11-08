@@ -41,7 +41,8 @@ public class HomeKeyService extends AccessibilityService {
         try {
             android.accessibilityservice.AccessibilityServiceInfo i = getServiceInfo();
             if (i == null) return;
-            boolean want = true; // всегда: зажатая на 5 с свободная кнопка предлагает назначить действие
+            // кнопки пульта пока только на домашних ТВ; там перехват всегда — зажатая на 5 с свободная кнопка предлагает действие
+            boolean want = learner != null || Comfort.labs(this);
             int f = want ? i.flags | android.accessibilityservice.AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS
                     : i.flags & ~android.accessibilityservice.AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS;
             if (f != i.flags) {

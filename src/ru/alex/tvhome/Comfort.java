@@ -273,11 +273,18 @@ final class Comfort {
         return System.currentTimeMillis() - HaReceiver.prefs(c).getLong("seen", 0) < 14 * 86400_000L;
     }
 
+    /**
+     * Обкатываемые функции (кнопки пульта, «Лишние приложения») — пока только на домашних телевизорах
+     * (там, где есть Home Assistant). У остальных их не видно; включить для всех — вернуть true.
+     */
+    static boolean labs(Context c) { return haHome(c); }
+
     /** «Что нового» для этого телевизора: строки про Home Assistant — только там, где он есть. */
     static String whatsNew(Context c) {
         boolean ha = haHome(c);
         StringBuilder out = new StringBuilder();
         for (String line : WHATS_NEW.replace("{HA_ONLINE}", ha ? " Home Assistant и Алиса тоже до него достают." : "").split("\n")) {
+            if (!labs(c) && (line.contains("Кнопки пульта") || line.contains("Лишние приложения"))) continue;
             if (!ha && (line.contains("Home Assistant") || line.contains("Алис") || line.contains("домофон") || line.contains("протечк")
                     || line.contains("климат"))) continue;
             if (out.length() > 0) out.append('\n');

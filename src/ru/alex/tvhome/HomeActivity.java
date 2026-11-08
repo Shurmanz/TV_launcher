@@ -1339,22 +1339,26 @@ public class HomeActivity extends Activity {
                 + "Оперативная: свободно " + Comfort.gb(Comfort.availMem(this)) + " из " + Comfort.gb(Comfort.totalMem(this))
                 + ".  Место: свободно " + Comfort.gb(stg[0]) + ".", sl);
 
-        LinearLayout jk = new LinearLayout(this);
-        addAction(jk, "Открыть…", this::openJunk);
-        int nr = Junk.removed(this).length();
-        section(p, "Лишние приложения", "Всё, чего нет на главном экране: когда открывали и сколько весит. Ненужное — убрать, "
-                + "вернуть можно в любой момент." + (nr > 0 ? "  Убрано: " + nr + "." : ""), jk);
+        if (Comfort.labs(this)) { // пока только на домашних телевизорах
+            LinearLayout jk = new LinearLayout(this);
+            addAction(jk, "Открыть…", this::openJunk);
+            int nr = Junk.removed(this).length();
+            section(p, "Лишние приложения", "Всё, чего нет на главном экране: когда открывали и сколько весит. Ненужное — убрать, "
+                    + "вернуть можно в любой момент." + (nr > 0 ? "  Убрано: " + nr + "." : ""), jk);
+        }
 
         LinearLayout st = new LinearLayout(this);
         addAction(st, "Выбрать…", this::openStartPicker);
         String sp = Comfort.startPkg(this);
         section(p, "При включении открывать", sp.isEmpty() ? "Главный экран Slauncher." : label(sp) + " (кнопка «Домой» — в Slauncher).", st);
 
-        LinearLayout kb = new LinearLayout(this);
-        addAction(kb, "Настроить…", this::openKeys);
-        int nk = Keys.all(this).size();
-        section(p, "Кнопки пульта", nk == 0 ? "Своё действие на любую кнопку: Netflix, YouTube, цветные, цифры — например, открыть Зону."
-                : "Назначено кнопок: " + nk + ".", kb);
+        if (Comfort.labs(this)) { // пока только на домашних телевизорах
+            LinearLayout kb = new LinearLayout(this);
+            addAction(kb, "Настроить…", this::openKeys);
+            int nk = Keys.all(this).size();
+            section(p, "Кнопки пульта", nk == 0 ? "Своё действие на любую кнопку: Netflix, YouTube, цветные, цифры — например, открыть Зону."
+                    : "Назначено кнопок: " + nk + ".", kb);
+        }
 
         LinearLayout bgr = new LinearLayout(this);
         String bgMode = Comfort.bg(this);
