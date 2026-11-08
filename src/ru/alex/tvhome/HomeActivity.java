@@ -84,6 +84,7 @@ public class HomeActivity extends Activity {
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
+        Comfort.catchCrashes(this);
         Fonts.init(this);
         apps = new Apps(this);
         BootReceiver.ensureService(this);
@@ -117,6 +118,8 @@ public class HomeActivity extends Activity {
         Shows.refresh(this, this::updateNewEps);
         root.removeCallbacks(sleepTick);
         sleepTick.run();
+        String crash = Comfort.takeCrash(this);
+        if (crash != null) { root.postDelayed(() -> openCrash(crash), 600); return; }
         if (panel == null && Comfort.shouldShowWhatsNew(this)) root.postDelayed(this::openWhatsNew, 800);
         if (!setupOffered && !getSharedPreferences(SetupActivity.PREF, MODE_PRIVATE).getBoolean("seen", false)
                 && SetupActivity.needed(this)) {
@@ -3121,5 +3124,24 @@ public class HomeActivity extends Activity {
                 if (panel == p) openJunk();
             });
         }).start();
+    }
+
+    /** «Slauncher упал в прошлый раз» — текст ошибки, чтобы человек сфоткал и прислал. */
+    private void openCrash(String text) {
+        Panel p = new Panel(this, "Slauncher упал в прошлый раз",
+                "Сфотографируйте этот экран и отправьте тому, кто дал вам Slauncher, — так проще найти и исправить ошибку.").tall();
+        ScrollView sv = new ScrollView(this);
+        TextView t = Ui.text(this, 11, 400, 0xD9FFFFFF);
+        t.setShadowLayer(0, 0, 0, 0);
+        t.setTypeface(android.graphics.Typeface.MONOSPACE);
+        t.setText(text);
+        sv.addView(t);
+        p.body.addView(sv, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(330)));
+        LinearLayout row = new LinearLayout(this);
+        View ok = addAction(row, "Понятно", this::closePanel);
+        LinearLayout.LayoutParams rl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rl.topMargin = dp(12);
+        p.body.addView(row, rl);
+        showPanel(p, ok);
     }
 }

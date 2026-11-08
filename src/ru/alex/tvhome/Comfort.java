@@ -230,7 +230,8 @@ final class Comfort {
     // ---------- что нового ----------
 
     static final String WHATS_NEW =
-            "• Мастер настройки: если Slauncher не включается в «Специальных возможностях» (бывает на Mi Box и старых Android TV), "
+            "• Если Slauncher вдруг упадёт, при следующем запуске он покажет текст ошибки — сфотографируйте и отправьте, так её проще исправить.\n"
+                    + "• Мастер настройки: если Slauncher не включается в «Специальных возможностях» (бывает на Mi Box и старых Android TV), "
                     + "появится пошаговая подсказка и кнопка «Включить через отладку».\n"
                     + "• В настройках «Назад» возвращает на предыдущий экран, а не сразу на главный.\n"
                     + "• «Удобство» → «Лишние приложения»: всё, чего нет на главном экране, — когда открывали последний раз и сколько весит. "
@@ -273,6 +274,37 @@ final class Comfort {
     static boolean haHome(Context c) {
         if (HaConfig.enabled(c)) return true;
         return System.currentTimeMillis() - HaReceiver.prefs(c).getLong("seen", 0) < 14 * 86400_000L;
+    }
+
+    // ---------- отчёт о падении: показать при следующем запуске, чтобы человек сфоткал ----------
+
+    private static boolean crashHook;
+
+    static synchronized void catchCrashes(Context ctx) {
+        if (crashHook) return;
+        crashHook = true;
+        Context c = ctx.getApplicationContext();
+        Thread.UncaughtExceptionHandler prev = Thread.getDefaultUncaughtExceptionHandler();
+        Thread.setDefaultUncaughtExceptionHandler((th, e) -> {
+            try {
+                java.io.StringWriter sw = new java.io.StringWriter();
+                e.printStackTrace(new java.io.PrintWriter(sw));
+                String s = sw.toString();
+                if (s.length() > 2500) s = s.substring(0, 2500);
+                String head = "Slauncher " + Updater.myName(c) + " · " + android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL
+                        + " · Android " + android.os.Build.VERSION.RELEASE + "\n";
+                c.getSharedPreferences("crash", Context.MODE_PRIVATE).edit().putString("last", head + s).commit();
+            } catch (Throwable ignored) { }
+            if (prev != null) prev.uncaughtException(th, e);
+        });
+    }
+
+    /** Текст последнего падения (и стереть). */
+    static String takeCrash(Context c) {
+        android.content.SharedPreferences p = c.getSharedPreferences("crash", Context.MODE_PRIVATE);
+        String s = p.getString("last", null);
+        if (s != null) p.edit().remove("last").apply();
+        return s;
     }
 
     /**

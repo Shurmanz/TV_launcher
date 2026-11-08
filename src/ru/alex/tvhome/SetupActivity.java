@@ -72,6 +72,7 @@ public class SetupActivity extends Activity {
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
+        Comfort.catchCrashes(this);
         Fonts.init(this);
         FrameLayout root = new FrameLayout(this);
         GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TL_BR, new int[]{0xFF14171C, 0xFF0B0C0F});
@@ -244,6 +245,24 @@ public class SetupActivity extends Activity {
     }
 
     private void build() {
+        try { buildList(); }
+        catch (Throwable e) { // не вылетать на родной экран: показать ошибку — её можно сфоткать
+            Net.log("setup", e instanceof Exception ? (Exception) e : new Exception(e));
+            list.removeAllViews();
+            java.io.StringWriter sw = new java.io.StringWriter();
+            e.printStackTrace(new java.io.PrintWriter(sw));
+            String st = sw.toString();
+            TextView t = Ui.text(this, 12, 400, 0xD9FFFFFF);
+            t.setShadowLayer(0, 0, 0, 0);
+            t.setTypeface(android.graphics.Typeface.MONOSPACE);
+            t.setText("Не получилось показать список — сфотографируйте экран и отправьте тому, кто дал вам Slauncher.\n"
+                    + "Slauncher " + Updater.myName(this) + " · " + Build.MANUFACTURER + " " + Build.MODEL + " · Android " + Build.VERSION.RELEASE
+                    + "\n\n" + (st.length() > 2000 ? st.substring(0, 2000) : st));
+            list.addView(t);
+        }
+    }
+
+    private void buildList() {
         list.removeAllViews();
         firstButton = null;
         View firstMissing = null;
