@@ -37,15 +37,28 @@ public class SetupActivity extends Activity {
         }
     }
 
+    static final long UNREADABLE = Long.MIN_VALUE;
+
+    /**
+     * Прочитать системную настройку. С Android 12 скрытые ключи (low_power_standby_enabled, adb_allowed_connection_time…)
+     * обычным приложениям не отдаются — бросается исключение. Тогда UNREADABLE, а «сделано ли» помним сами.
+     */
+    static long global(android.content.Context c, String key, long def) {
+        try { return Settings.Global.getLong(c.getContentResolver(), key, def); }
+        catch (Throwable e) { return UNREADABLE; }
+    }
+
     /** Энергосбережение Android выключено и Slauncher в исключениях Doze. */
     static boolean sleepOk(android.content.Context c) {
-        boolean lps = Settings.Global.getInt(c.getContentResolver(), "low_power_standby_enabled", 0) != 0;
+        long v = global(c, "low_power_standby_enabled", 0);
+        boolean lps = v == UNREADABLE ? !c.getSharedPreferences(PREF, MODE_PRIVATE).getBoolean("lps_off", false) : v != 0;
         android.os.PowerManager pm = (android.os.PowerManager) c.getSystemService(POWER_SERVICE);
         return !lps && pm.isIgnoringBatteryOptimizations(c.getPackageName());
     }
 
     static boolean adbKeepOk(android.content.Context c) {
-        return Settings.Global.getLong(c.getContentResolver(), "adb_allowed_connection_time", 604800000L) == 0;
+        long v = global(c, "adb_allowed_connection_time", 604800000L);
+        return v == UNREADABLE ? c.getSharedPreferences(PREF, MODE_PRIVATE).getBoolean("adb_keep", false) : v == 0;
     }
 
     /** Есть ли важные невыполненные пункты (для показа при первом запуске). */
@@ -65,8 +78,12 @@ public class SetupActivity extends Activity {
     }
 
     static boolean dreamOn(android.content.Context c) {
-        String s = Settings.Secure.getString(c.getContentResolver(), "screensaver_components");
-        return s != null && s.contains(c.getPackageName());
+        try {
+            String s = Settings.Secure.getString(c.getContentResolver(), "screensaver_components");
+            return s != null && s.contains(c.getPackageName());
+        } catch (Throwable e) { // Android 12+: скрытые ключи настроек приложениям не читаются
+            return c.getSharedPreferences(PREF, MODE_PRIVATE).getBoolean("dream_set", false);
+        }
     }
 
     @Override

@@ -452,14 +452,17 @@ final class Optimizer {
             cmds.add("settings put secure screensaver_enabled 1");
         }
         // не засыпать целиком (Xiaomi и др. с энергосбережением Android 13+) и не терять разрешение отладки через 7 дней
-        if (android.provider.Settings.Global.getInt(c.getContentResolver(), "low_power_standby_enabled", 0) != 0)
-            cmds.add("settings put global low_power_standby_enabled 0");
+        long lps = SetupActivity.global(c, "low_power_standby_enabled", 0);
+        if (lps != 0) cmds.add("settings put global low_power_standby_enabled 0"); // не прочитать (Android 12+) — ставим на всякий
         if (!((android.os.PowerManager) c.getSystemService(Context.POWER_SERVICE)).isIgnoringBatteryOptimizations(me))
             cmds.add("cmd deviceidle whitelist +" + me);
         if (!SetupActivity.adbKeepOk(c)) cmds.add("settings put global adb_allowed_connection_time 0");
         if (!Updater.canInstall(c)) cmds.add("appops set " + me + " REQUEST_INSTALL_PACKAGES allow"); // последним
         c.getSharedPreferences(SetupActivity.PREF, Context.MODE_PRIVATE).edit().putBoolean("tcl_autostart", true).commit();
         runBatch(c, cmds);
+        // на Android 12+ эти ключи не прочитать — запоминаем, что выставили
+        c.getSharedPreferences(SetupActivity.PREF, Context.MODE_PRIVATE).edit()
+                .putBoolean("lps_off", true).putBoolean("adb_keep", true).putBoolean("dream_set", true).commit();
         return String.valueOf(cmds.size());
     }
 
