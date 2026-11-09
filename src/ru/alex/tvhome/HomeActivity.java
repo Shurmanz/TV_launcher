@@ -1830,11 +1830,11 @@ public class HomeActivity extends Activity {
         }
         p.count.setText(plural(rest.size(), "приложение", "приложения", "приложений"));
 
-        LinearLayout actions = new LinearLayout(this);
-        actions.setOrientation(LinearLayout.HORIZONTAL);
+        // кнопки — одной строкой в ленте (не влезают — листаются вбок), чтобы шапка не росла и не выдавливала плитки вниз
+        LinearLayout actions = p.strip();
         View firstAction = null;
         if (ctx != null) {
-            firstAction = addAction(actions, "Переместить «" + ctx.label + "»", () -> startMove(ctx.pkg));
+            firstAction = addAction(actions, "Переместить", () -> startMove(ctx.pkg));
             addAction(actions, "Убрать с главного", () -> {
                 List<String> d = apps.dockPackages();
                 d.remove(ctx.pkg);
@@ -1850,15 +1850,14 @@ public class HomeActivity extends Activity {
             if (firstAction == null) firstAction = next;
         }
         if (wall.hasPhoto()) {
-            addAction(actions, "Скрыть это фото навсегда", () -> {
+            addAction(actions, "Скрыть это фото", () -> {
                 closePanel();
                 wall.hideCurrent();
                 Toast.makeText(this, "Это фото больше не появится", Toast.LENGTH_SHORT).show();
             });
         }
-        LinearLayout.LayoutParams al = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        al.bottomMargin = dp(14);
-        p.body.addView(actions, al);
+        for (int i = 0; i < actions.getChildCount(); i++) ((TextView) actions.getChildAt(i)).setSingleLine(true);
+        if (actions.getChildCount() == 0) p.body.removeView((View) actions.getParent());
 
         View firstCard = null;
         if (rest.isEmpty()) {
