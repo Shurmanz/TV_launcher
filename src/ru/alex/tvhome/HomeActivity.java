@@ -2212,7 +2212,17 @@ public class HomeActivity extends Activity {
     private Panel watchPanel;
 
     /** С главного экрана: всегда со вкладки «Сериалы». */
+    /** Зерно перемешивания подборки: новое при каждом открытии «Что посмотреть», внутри одного открытия порядок не прыгает. */
+    private long watchSeed = System.nanoTime();
+
+    private List<Shows.Show> shuffled(List<Shows.Show> src) {
+        List<Shows.Show> l = new ArrayList<>(src);
+        java.util.Collections.shuffle(l, new java.util.Random(watchSeed));
+        return l;
+    }
+
     private void openWatchFresh() {
+        watchSeed = System.nanoTime();
         watchMode = "series";
         watchRegion = "foreign";
         watchFocus = 0;
@@ -2330,7 +2340,7 @@ public class HomeActivity extends Activity {
             List<Shows.Show> allPicks = Shows.picks(this), picks = new ArrayList<>();
             Map<Integer, Shows.Show> byId = new HashMap<>();
             java.util.Set<Integer> hid = Shows.hidden(this);
-            for (Shows.Show s : allPicks) {
+            for (Shows.Show s : shuffled(allPicks)) { // каждое открытие — случайные 20 из всей подборки
                 byId.put(s.id, s);
                 if (s.russian() == ru && !hid.contains(s.id) && picks.size() < Shows.SHOW_PER_GROUP) picks.add(s); // скрытые выпали — встают следующие
             }
@@ -2343,7 +2353,7 @@ public class HomeActivity extends Activity {
             for (Shows.Show s : picks) if (!followedIds.contains(s.id)) list.add(s);
             List<String> rel = Shows.released(this);
             note(p, !rel.isEmpty() ? "🎬  " + TextUtils.join("   ·   ", rel)
-                    : (ru ? "Русские" : "Иностранные") + " сериалы за этот и прошлый год с оценкой от 7,5  ·  ★ — вы следите за сериями",
+                    : (ru ? "Русские" : "Иностранные") + " сериалы за этот и прошлый год с оценкой от 7,5  ·  каждый раз новая подборка  ·  ★ — вы следите",
                     !rel.isEmpty());
             p.count.setText(folN == 0 ? plural(picks.size(), "сериал", "сериала", "сериалов")
                     : "слежу: " + folN + "  ·  " + plural(picks.size(), "сериал", "сериала", "сериалов"));
@@ -2359,11 +2369,11 @@ public class HomeActivity extends Activity {
             }
             List<Shows.Show> films = Shows.films(this);
             java.util.Set<Integer> hid = Shows.hidden(this);
-            for (Shows.Show s : films) if (s.russian() == ru && !hid.contains(s.id) && list.size() < Shows.SHOW_PER_GROUP) list.add(s);
+            for (Shows.Show s : shuffled(films)) if (s.russian() == ru && !hid.contains(s.id) && list.size() < Shows.SHOW_PER_GROUP) list.add(s);
             p.count.setText(list.isEmpty() ? "" : plural(list.size(), "фильм", "фильма", "фильмов"));
             String err = Shows.filmsError(this);
             if (films.isEmpty() && !err.isEmpty()) note(p, "Не получилось загрузить фильмы: " + err, true);
-            else note(p, (ru ? "Русские" : "Иностранные") + " фильмы, вышедшие в цифре за полгода, с оценкой от 7  ·  свежие первыми", false);
+            else note(p, (ru ? "Русские" : "Иностранные") + " фильмы этого и прошлого года с оценкой от 7, уже в онлайн-кинотеатрах  ·  каждый раз новая подборка", false);
             if (films.isEmpty()) {
                 if (err.isEmpty()) note(p, "Загружаю фильмы…", false);
                 Shows.refreshFilms(this, () -> { if (panel == p && (!Shows.films(this).isEmpty() || !Shows.filmsError(this).isEmpty())) openWatch(); });

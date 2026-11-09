@@ -261,8 +261,8 @@ final class Shows {
                 haSync(app);
                 PeerSync.sync(app);
                 long now = System.currentTimeMillis();
-                if (prefs(app).getInt("picks_rules", 0) != 5) { // правила подборки сменились — перечитать сразу
-                    prefs(app).edit().putInt("picks_rules", 5).putLong("picks_at", 0).putLong("films_at", 0).apply();
+                if (prefs(app).getInt("picks_rules", 0) != 6) { // правила подборки сменились — перечитать сразу
+                    prefs(app).edit().putInt("picks_rules", 6).putLong("picks_at", 0).putLong("films_at", 0).apply();
                 }
                 if (now - prefs(app).getLong("picks_at", 0) > PICKS_TTL) fetchPicks(app);
                 if (!token(app).isEmpty() && now - prefs(app).getLong("films_at", 0) > PICKS_TTL) fetchFilms(app);
@@ -570,18 +570,28 @@ final class Shows {
         return s;
     }
 
-    /** Фильмы, вышедшие в цифре за полгода, все жанры, от 7 по КП; русские — отдельным запросом, чтобы их не вытеснили. */
+    /** Фильмы этого и прошлого года от 7 по КП (от 3000 голосов), которые уже есть в онлайн-кинотеатрах. */
     private static void fetchFilms(Context c) throws Exception {
         if (token(c).isEmpty()) return;
-        SimpleDateFormat f = new SimpleDateFormat("dd.MM.yyyy", Locale.US);
         long now = System.currentTimeMillis();
-        String range = f.format(new java.util.Date(now - FILMS_DAYS * 86400_000L)) + "-" + f.format(new java.util.Date(now));
-        String base = "/v1.4/movie?page=1&type=movie&sortField=premiere.digital&sortType=-1&notNullFields=poster.url"
-                + "&rating.kp=" + (int) FILMS_MIN + "-10&premiere.digital=" + range;
+        int y = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR);
+        // этот и прошлый год, оценка от 7, не меньше 3000 голосов, обязательно уже есть в онлайн-кинотеатре (значит, в цифре
+        // и в нормальном качестве); без региональных фильмов, которые набирают оценки у своей аудитории, концертов и документалок
+        StringBuilder q = new StringBuilder("/v1.4/movie?limit=250&type=movie&sortField=premiere.world&sortType=-1")
+                .append("&year=").append(y - 1).append("-").append(y)
+                .append("&rating.kp=").append((int) FILMS_MIN).append("-10&votes.kp=3000-100000000")
+                .append("&notNullFields=poster.url&notNullFields=watchability.items.name");
+        for (String x : new String[]{"Казахстан", "Узбекистан", "Киргизия", "Таджикистан", "Туркменистан", "Азербайджан"})
+            q.append("&countries.name=").append(java.net.URLEncoder.encode("!" + x, "UTF-8"));
+        for (String x : new String[]{"концерт", "документальный"})
+            q.append("&genres.name=").append(java.net.URLEncoder.encode("!" + x, "UTF-8"));
+        String base = q.toString();
         Map<Integer, Show> m = new LinkedHashMap<>();
         try {
-            for (String q : new String[]{base + "&limit=60&countries.name=" + java.net.URLEncoder.encode("Россия", "UTF-8"), base + "&limit=150"}) {
-                JSONArray docs = new JSONObject(kpGet(c, q)).optJSONArray("docs");
+            for (int page = 1, pages = 1; page <= pages && page <= 3; page++) { // 1–2 запроса за обновление
+                JSONObject r = new JSONObject(kpGet(c, base + "&page=" + page));
+                pages = r.optInt("pages", 1);
+                JSONArray docs = r.optJSONArray("docs");
                 if (docs == null) continue;
                 for (int i = 0; i < docs.length(); i++) {
                     Show s = film(docs.optJSONObject(i));
@@ -594,12 +604,12 @@ final class Shows {
             throw e;
         }
         List<Show> list = new ArrayList<>(m.values());
-        Collections.sort(list, (a, b) -> b.digital.compareTo(a.digital)); // свежие цифровые релизы — первыми
+        // порядок с сервера — по дате премьеры, свежие первыми; на экране всё равно перемешивается при каждом открытии
         JSONArray a = new JSONArray();
         for (Show s : list) a.put(s.json());
         writeJson(file(c, "shows_films.json"), new JSONObject().put("list", a));
         prefs(c).edit().putLong("films_at", now).putString("films_err", "").apply();
-        Log.i(Net.TAG, "shows: фильмов в цифре " + list.size());
+        Log.i(Net.TAG, "shows: фильмов в онлайн-кинотеатрах " + list.size());
     }
 
     /** Диагностика (adb): произвольный запрос к poiskkino — сколько и что отдаёт сервер. */
