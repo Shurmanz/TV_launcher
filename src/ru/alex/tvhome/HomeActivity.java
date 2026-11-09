@@ -444,7 +444,7 @@ public class HomeActivity extends Activity {
 
     private void updateTip(boolean count) {
         if (tip == null) return;
-        boolean showUpd = SetupActivity.homeServiceOn(this) && Updater.available(this) && !Updater.bannerDismissed(this)
+        boolean showUpd = SetupActivity.homeOk(this) && Updater.available(this) && !Updater.bannerDismissed(this)
                 && moving == null;
         if (showUpd) {
             ((TextView) updBar.getChildAt(0)).setText("Вышла новая версия Slauncher " + Updater.remoteName(this));
@@ -453,7 +453,7 @@ public class HomeActivity extends Activity {
             return;
         }
         updBar.setVisibility(View.GONE);
-        if (!SetupActivity.homeServiceOn(this)) {
+        if (!SetupActivity.homeOk(this)) {
             tip.setText("Кнопка «Домой» на пульте сейчас ведёт не в Slauncher  ·  ОК — включить");
             tip.setFocusable(true);
             tip.setOnFocusChangeListener((v, has) -> {
