@@ -602,6 +602,28 @@ final class Shows {
         Log.i(Net.TAG, "shows: фильмов в цифре " + list.size());
     }
 
+    /** Диагностика (adb): произвольный запрос к poiskkino — сколько и что отдаёт сервер. */
+    static void debugQuery(Context c, String q) {
+        try {
+            JSONObject r = new JSONObject(kpGet(c, q));
+            JSONArray docs = r.optJSONArray("docs");
+            int n = docs == null ? 0 : docs.length(), ru = 0, watch = 0;
+            StringBuilder sb = new StringBuilder();
+            if (docs != null) for (int i = 0; i < docs.length(); i++) {
+                JSONObject d = docs.optJSONObject(i);
+                Show sh = film(d);
+                if (sh.russian()) ru++;
+                JSONObject w = d.optJSONObject("watchability");
+                JSONArray wi = w == null ? null : w.optJSONArray("items");
+                if (wi != null && wi.length() > 0) watch++;
+                if (i < 60) sb.append(sh.title).append(" ").append(sh.year).append(" kp").append(sh.kp).append(" imdb").append(sh.imdb)
+                        .append(" w").append(wi == null ? 0 : wi.length()).append(sh.russian() ? " RU" : "").append("; ");
+            }
+            Log.i(Net.TAG, "dbg q: total=" + r.optInt("total") + " docs=" + n + " ru=" + ru + " watch=" + watch);
+            for (int i = 0; i < sb.length(); i += 900) Log.i(Net.TAG, "dbg q list: " + sb.substring(i, Math.min(sb.length(), i + 900)));
+        } catch (Exception e) { Net.log("dbg q", e); }
+    }
+
     /** Диагностика фильмов (adb): что отдаёт сервер по тем же запросам — в logcat. */
     static void debugFilms(Context c) {
         try {
