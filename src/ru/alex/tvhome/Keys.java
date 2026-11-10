@@ -53,14 +53,59 @@ final class Keys {
     /** Можно ли предлагать назначение по долгому удержанию: не навигация и не то, что держат специально (перемотка, каналы). */
     static boolean offerable(int kc) {
         if (forbidden(kc)) return false;
-        switch (kc) {
-            case KeyEvent.KEYCODE_MEDIA_REWIND: case KeyEvent.KEYCODE_MEDIA_FAST_FORWARD:
-            case KeyEvent.KEYCODE_CHANNEL_UP: case KeyEvent.KEYCODE_CHANNEL_DOWN:
-            case KeyEvent.KEYCODE_PAGE_UP: case KeyEvent.KEYCODE_PAGE_DOWN:
-            case KeyEvent.KEYCODE_DEL: case KeyEvent.KEYCODE_FORWARD_DEL: case KeyEvent.KEYCODE_SPACE:
-                return false;
+        return appLike(kc); // функциональные кнопки (громкость, меню, источник, медиа, микрофон…) сами не предлагаем
+    }
+
+    /**
+     * Похожа ли кнопка на «кнопку кинотеатра»: особые коды «кнопка приложения», цветные, нестандартные коды
+     * производителя (система их не знает) или вовсе без кода. Всё остальное — функциональные кнопки телевизора.
+     */
+    static boolean appLike(int kc) {
+        if (kc == 0) return true;
+        String s = KeyEvent.keyCodeToString(kc);
+        if (s.startsWith("KEYCODE_")) s = s.substring(8);
+        if (s.matches("\\d+")) return true; // код производителя
+        if (s.startsWith("FEATURED_APP_") || s.startsWith("PROG_") || s.startsWith("BUTTON_")) return true;
+        switch (s) {
+            case "EXPLORER": case "BOOKMARK": case "ALL_APPS": case "TV_NETWORK": case "DVR": case "MUSIC": case "CALENDAR":
+            case "CONTACTS": case "CALCULATOR": case "ENVELOPE": case "VIDEO_APP_1": case "VIDEO_APP_2": case "VIDEO_APP_3":
+            case "VIDEO_APP_4": case "VIDEO_APP_5": case "VIDEO_APP_6": case "VIDEO_APP_7": case "VIDEO_APP_8":
+                return true;
         }
-        return !(kc >= KeyEvent.KEYCODE_A && kc <= KeyEvent.KEYCODE_Z); // клавиатура
+        return false;
+    }
+
+    // ---------- «не трогать»: кнопка целиком остаётся телевизорной (и коротко, и долго) ----------
+
+    private static java.util.Set<String> ignoredCache;
+
+    static synchronized java.util.Set<String> ignored(Context c) {
+        if (ignoredCache == null) ignoredCache = new java.util.HashSet<>(p(c).getStringSet("ignored", new java.util.HashSet<>()));
+        return ignoredCache;
+    }
+
+    static synchronized void setIgnored(Context c, String id, String name, boolean on) {
+        java.util.Set<String> s = new java.util.HashSet<>(ignored(c));
+        if (on) s.add(id); else s.remove(id);
+        p(c).edit().putStringSet("ignored", s).putString("name_" + id, name).apply();
+        ignoredCache = s;
+        if (on) { Map<String, Bind> m = new LinkedHashMap<>(map(c)); if (m.remove(id) != null) store(c, m); }
+    }
+
+    static String savedName(Context c, String id) { return p(c).getString("name_" + id, id); }
+
+    // ---------- что открывает кнопка сама (запоминаем, какое приложение открылось сразу после нажатия) ----------
+
+    static void rememberApp(Context c, String id, String pkg) {
+        if (!pkg.equals(p(c).getString("opens_" + id, null))) p(c).edit().putString("opens_" + id, pkg).apply();
+    }
+
+    /** «Сейчас открывает: Netflix» или null. */
+    static String opensLabel(Context c, String id) {
+        String pkg = p(c).getString("opens_" + id, null);
+        if (pkg == null) return null;
+        try { return c.getPackageManager().getApplicationLabel(c.getPackageManager().getApplicationInfo(pkg, 0)).toString(); }
+        catch (Exception e) { return null; }
     }
 
     /** Человеческое название кнопки. */

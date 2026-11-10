@@ -2874,7 +2874,8 @@ public class HomeActivity extends Activity {
     /** Список назначенных кнопок + «Добавить кнопку». */
     private void openKeys() {
         Panel p = new Panel(this, "Кнопки пульта", "Своё действие на любую кнопку пульта — по нажатию и по долгому нажатию. "
-                + "Быстрее: зажмите свободную кнопку на 5 секунд в любом месте. Стрелки, ОК, «Назад», громкость и питание не меняются.");
+                + "Кнопки кинотеатров (Netflix, YouTube…) — зажмите на 5 секунд в любом месте, Slauncher сам предложит. "
+                + "Громкость, меню, источник, микрофон и прочие кнопки телевизора он не трогает — их можно назначить здесь. Стрелки, ОК, «Назад», громкость и питание не меняются.");
         List<Keys.Bind> list = Keys.all(this);
         p.count.setText(list.isEmpty() ? "" : "назначено: " + list.size());
         View first = null;
@@ -2895,6 +2896,12 @@ public class HomeActivity extends Activity {
             if (first == null) first = e;
             section(p, b.name, "Нажатие → " + Keys.label(this, b.tap)
                     + (b.hold != null ? ".   Долгое → " + Keys.label(this, b.hold) : "") + ".", a);
+        }
+        for (String id : new java.util.TreeSet<>(Keys.ignored(this))) {
+            LinearLayout a = new LinearLayout(this);
+            View e = addAction(a, "Вернуть", () -> { Keys.setIgnored(this, id, Keys.savedName(this, id), false); openKeys(); });
+            if (first == null) first = e;
+            section(p, Keys.savedName(this, id), "Не трогаю — работает как на телевизоре. «Вернуть» — снова предлагать назначить.", a);
         }
         LinearLayout row = new LinearLayout(this);
         View add = addAction(row, "Добавить кнопку", this::learnKey);
@@ -2951,9 +2958,23 @@ public class HomeActivity extends Activity {
 
     /** Выбор действия: на нажатие или на долгое нажатие. fresh — кнопку только что поймали. */
     private void pickKeyAction(Keys.Bind b, boolean hold, boolean fresh) {
-        Panel p = new Panel(this, b.name + (hold ? " — долгое нажатие" : " — нажатие"), "Что открывать этой кнопкой?").tall();
+        String opens = Keys.opensLabel(this, b.id);
+        Panel p = new Panel(this, b.name + (hold ? " — долгое нажатие" : " — нажатие"),
+                (opens != null && !hold ? "Сейчас открывает «" + opens + "». " : "") + "Что открывать этой кнопкой?").tall();
         String cur = hold ? b.hold : b.tap;
         View first = null;
+        if (fresh && !hold) { // кнопка своя у телевизора (держат специально) — можно оставить её как есть
+            LinearLayout keep = new LinearLayout(this);
+            View k = addAction(keep, "Не трогать эту кнопку — пусть работает как на телевизоре", () -> {
+                Keys.setIgnored(this, b.id, b.name, true);
+                Toast.makeText(this, "«" + b.name + "» работает как раньше. Вернуть: Удобство → Кнопки пульта", Toast.LENGTH_LONG).show();
+                closePanel();
+            });
+            ((TextView) k).setSingleLine(true);
+            LinearLayout.LayoutParams kl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            kl.bottomMargin = dp(6);
+            p.body.addView(keep, kl);
+        }
         rowHead(p, "Приложения");
         LinearLayout apps = p.strip();
         List<Apps.App> list = new ArrayList<>(dock);
@@ -2995,6 +3016,7 @@ public class HomeActivity extends Activity {
     }
 
     private void setKeyAction(Keys.Bind b, boolean hold, String a) {
+        if (Keys.ignored(this).contains(b.id)) Keys.setIgnored(this, b.id, b.name, false); // назначили вручную — уже не «не трогаю»
         if (hold) b.hold = a; else b.tap = a;
         Keys.save(this, b);
         openKeyBind(b);
@@ -3012,6 +3034,7 @@ public class HomeActivity extends Activity {
         LinearLayout row = new LinearLayout(this);
         addAction(row, "Готово", this::openKeys);
         addAction(row, "Удалить", () -> { Keys.remove(this, b.id); openKeys(); });
+        addAction(row, "Вернуть телевизору", () -> { Keys.setIgnored(this, b.id, b.name, true); openKeys(); });
         LinearLayout.LayoutParams rl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         rl.topMargin = dp(18);
         p.body.addView(row, rl);

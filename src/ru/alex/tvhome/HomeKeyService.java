@@ -75,9 +75,14 @@ public class HomeKeyService extends AccessibilityService {
         startActivity(i);
     };
 
+    /** Последняя нажатая свободная кнопка — чтобы понять, какое приложение она открывает сама. */
+    private String pressedId;
+    private long pressedAt;
+
     private void watchHold(android.view.KeyEvent e) {
-        if (!Keys.offerable(e.getKeyCode())) return;
         String id = Keys.id(e);
+        if (e.getAction() == android.view.KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) { pressedId = id; pressedAt = SystemClock.elapsedRealtime(); }
+        if (!Keys.offerable(e.getKeyCode()) || Keys.ignored(this).contains(id)) return;
         if (e.getAction() == android.view.KeyEvent.ACTION_DOWN) {
             if (e.getRepeatCount() > 0 && id.equals(offerId)) return;
             offerId = id;
@@ -132,6 +137,11 @@ public class HomeKeyService extends AccessibilityService {
 
         for (String v : VOICE) {
             if (pkg.equals(v)) { lastVoice = now; return; }
+        }
+        if (pressedId != null && now - pressedAt < 2000 && !pkg.equals(getPackageName()) && !pkg.equals("android")
+                && !pkg.startsWith("com.android.systemui") && !pkg.contains("inputmethod")) { // кнопка пульта открыла это приложение
+            Keys.rememberApp(this, pressedId, pkg);
+            pressedId = null;
         }
         java.util.Set<String> homes = stockHomes(now).get(pkg);
         if (homes == null) {
