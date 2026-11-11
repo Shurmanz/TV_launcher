@@ -1358,10 +1358,14 @@ public class HomeActivity extends Activity {
 
         if (Comfort.labs(this)) { // пока только на домашних телевизорах
             LinearLayout kb = new LinearLayout(this);
-            addAction(kb, "Настроить…", this::openKeys);
+            boolean kon = Keys.enabled(this);
+            addAction(kb, kon ? "Выключить" : "Включить", () -> { Keys.setEnabled(this, !Keys.enabled(this)); openComfort(); });
+            if (kon) addAction(kb, "Настроить…", this::openKeys);
             int nk = Keys.all(this).size();
-            section(p, "Кнопки пульта", nk == 0 ? "Своё действие на любую кнопку: Netflix, YouTube, цветные, цифры — например, открыть Зону."
-                    : "Назначено кнопок: " + nk + ".", kb);
+            section(p, "Кнопки пульта", kon
+                    ? "Включено" + (nk > 0 ? ", назначено кнопок: " + nk : "") + ". Пока включено, у некоторых телевизоров (TCL) не работает долгое нажатие "
+                    + "кнопок телевизора («Меню») и кнопка входов. Выключить — всё снова как с завода."
+                    : "Выключено — пульт работает как с завода. Включите, чтобы повесить своё действие на кнопку (Netflix → Зона и т.п.).", kb);
         }
 
         LinearLayout bgr = new LinearLayout(this);
@@ -2874,8 +2878,7 @@ public class HomeActivity extends Activity {
     /** Список назначенных кнопок + «Добавить кнопку». */
     private void openKeys() {
         Panel p = new Panel(this, "Кнопки пульта", "Своё действие на любую кнопку пульта — по нажатию и по долгому нажатию. "
-                + "Кнопки кинотеатров (Netflix, YouTube…) — зажмите на 5 секунд в любом месте, Slauncher сам предложит. "
-                + "Громкость, меню, источник, микрофон и прочие кнопки телевизора он не трогает — их можно назначить здесь. Стрелки, ОК, «Назад», громкость и питание не меняются.");
+                + "Назначенные кнопки работают, пока перехват включён (Удобство → Кнопки пульта). Стрелки, ОК, «Назад», громкость и питание не меняются.");
         List<Keys.Bind> list = Keys.all(this);
         p.count.setText(list.isEmpty() ? "" : "назначено: " + list.size());
         View first = null;

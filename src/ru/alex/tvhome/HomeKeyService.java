@@ -42,7 +42,8 @@ public class HomeKeyService extends AccessibilityService {
             android.accessibilityservice.AccessibilityServiceInfo i = getServiceInfo();
             if (i == null) return;
             // кнопки пульта пока только на домашних ТВ; там перехват всегда — зажатая на 5 с свободная кнопка предлагает действие
-            boolean want = learner != null || Comfort.labs(this);
+            // перехват — только пока «ловим» кнопку или когда перехват включён вручную и что-то назначено
+            boolean want = learner != null || (Comfort.labs(this) && Keys.enabled(this) && Keys.any(this));
             int f = want ? i.flags | android.accessibilityservice.AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS
                     : i.flags & ~android.accessibilityservice.AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS;
             if (f != i.flags) {
@@ -82,17 +83,7 @@ public class HomeKeyService extends AccessibilityService {
     private void watchHold(android.view.KeyEvent e) {
         String id = Keys.id(e);
         if (e.getAction() == android.view.KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) { pressedId = id; pressedAt = SystemClock.elapsedRealtime(); }
-        if (!Keys.offerable(e.getKeyCode()) || Keys.ignored(this).contains(id)) return;
-        if (e.getAction() == android.view.KeyEvent.ACTION_DOWN) {
-            if (e.getRepeatCount() > 0 && id.equals(offerId)) return;
-            offerId = id;
-            offerName = Keys.name(e);
-            main.removeCallbacks(offerTask);
-            main.postDelayed(offerTask, 5000);
-        } else if (e.getAction() == android.view.KeyEvent.ACTION_UP && id.equals(offerId)) {
-            main.removeCallbacks(offerTask);
-            offerId = null;
-        }
+        // окно «Что открыть?» по 5-секундному удержанию убрано: оно требовало постоянного перехвата, а тот ломал кнопки телевизора
     }
 
     @Override
@@ -103,7 +94,7 @@ public class HomeKeyService extends AccessibilityService {
             if (e.getAction() == android.view.KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) main.post(() -> l.accept(e));
             return !Keys.forbidden(kc); // навигация работает и в режиме «ловли» — чтобы можно было отменить
         }
-        if (Keys.forbidden(kc)) return false;
+        if (Keys.forbidden(kc) || !Keys.enabled(this)) return false;
         Keys.Bind b = Keys.get(this, Keys.id(e));
         if (b == null) { watchHold(e); return false; }
         if (e.getAction() == android.view.KeyEvent.ACTION_DOWN) {
@@ -196,6 +187,7 @@ public class HomeKeyService extends AccessibilityService {
     protected void onServiceConnected() {
         super.onServiceConnected();
         inst = this;
+        Keys.migrate(this);
         applyFilter(); // назначены кнопки пульта — включить перехват
         Comfort.applyStayOnline(this); // на Xiaomi — не засыпать вместе с Wi‑Fi
         PeerSync.start(this); // общий «Слежу» между телевизорами по Wi‑Fi

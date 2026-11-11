@@ -75,6 +75,30 @@ final class Keys {
         return false;
     }
 
+    // ---------- явное включение: пока выключено, Slauncher нажатия пульта не трогает вообще ----------
+
+    /**
+     * Перехват кнопок включается только вручную (Удобство → Кнопки пульта). Пока он включён, через Slauncher проходят все
+     * нажатия — на TCL от этого теряется долгое нажатие у кнопок телевизора («Меню» и т.п.) и не доходит кнопка входов.
+     */
+    static boolean enabled(Context c) { return p(c).getBoolean("on", false); }
+
+    static void setEnabled(Context c, boolean on) {
+        p(c).edit().putBoolean("on", on).apply();
+        HomeKeyService.refresh();
+    }
+
+    /** Один раз при обновлении: выключить перехват и стереть старые назначения (они ломали кнопки телевизора). В лог — что было. */
+    static void migrate(Context c) {
+        if (p(c).getInt("v", 0) >= 2) return;
+        StringBuilder was = new StringBuilder();
+        for (Bind b : all(c)) was.append(b.name).append(" → ").append(b.tap).append(b.hold != null ? " / долго " + b.hold : "").append("; ");
+        was.append("не трогаю: ").append(ignored(c));
+        android.util.Log.i(Net.TAG, "keys: сброс назначений при обновлении — было: " + was);
+        p(c).edit().putString("map", "{}").remove("ignored").putBoolean("on", false).putInt("v", 2).commit();
+        synchronized (Keys.class) { cache = null; ignoredCache = null; }
+    }
+
     // ---------- «не трогать»: кнопка целиком остаётся телевизорной (и коротко, и долго) ----------
 
     private static java.util.Set<String> ignoredCache;
